@@ -1,0 +1,277 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//--
+
+enum TipoCliente {
+  NACIONAL
+  EXTRANJERO
+  EMPRESA
+
+  @@map("tipo_cliente_enum")
+}
+
+enum EstadoCliente {
+  ACTIVO
+  SUSPENDIDO
+  BAJA
+
+  @@map("estado_cliente_enum")
+}
+
+enum TipoDocumento {
+  DNI
+  CE
+  RUC
+  PASAPORTE
+  @@map("tipo_documento_enum")
+}
+
+enum TipoRuc {
+  RUC10 @map("10")
+  RUC20 @map("20")
+
+  @@map("tipo_ruc_enum")
+}
+
+//--
+
+model Ubigeo {
+  idUbigeo     Int    @id @default(autoincrement()) @map("id_ubigeo")
+  departamento String @db.VarChar(100)
+  provincia    String @db.VarChar(100)
+  distrito     String @db.VarChar(100)
+  localidad    String @default("") @db.VarChar(150)
+
+  clientes Cliente[]
+
+  @@unique([departamento, provincia, distrito, localidad], name: "uq_ubigeo")
+  @@map("ubigeo")
+}
+
+model Cliente {
+  idCliente          Int           @id @default(autoincrement()) @map("id_cliente")
+  tipoCliente        TipoCliente   @map("tipo_cliente")
+  nombre             String        @db.VarChar(80)
+  apellido           String?       @db.VarChar(80)
+  correo             String?       @unique @db.VarChar(150)
+  direccion          String?       @db.VarChar(250)
+  idUbigeo           Int?          @map("id_ubigeo")
+  ubigeo             Ubigeo?       @relation(fields: [idUbigeo], references: [idUbigeo], onDelete: SetNull)
+  latitud            Decimal?      @db.Decimal(9, 6)
+  longitud           Decimal?      @db.Decimal(9, 6)
+  fotoReferencia     String?       @map("foto_referencia") @db.Text
+  referencia         String?       @db.Text
+  fechaRegistro      DateTime      @default(now()) @map("fecha_registro") @db.Timestamptz
+  fechaActualizacion DateTime      @default(now()) @updatedAt @map("fecha_actualizacion") @db.Timestamptz
+  estado             EstadoCliente @default(ACTIVO)
+  
+  idCreadoPor          Int?      @map("id_creado_por")
+  creadoPor            Usuario?  @relation("ClienteCreadoPor", fields: [idCreadoPor], references: [idUsuario])
+  idAsignadoA          Int?      @map("id_asignado_a")
+  asignadoA            Usuario?  @relation("ClienteAsignadoA", fields: [idAsignadoA], references: [idUsuario])
+  estadoAprobacion     EstadoAprobacionCliente @default(PENDIENTE) @map("estado_aprobacion")
+  solicitudes          Solicitud[]
+
+  documentos DocumentoCliente[]
+  telefonos  Telefono[]
+
+  nacionalidad                String?             @db.VarChar(50)
+  representanteLegal          String?             @map("representante_legal") @db.VarChar(150)
+  usoServicio                 UsoServicio?         @map("uso_servicio")
+  condicionCliente            CondicionCliente?    @map("condicion_cliente")
+  fechaInicio                 DateTime?            @map("fecha_inicio") @db.Timestamptz
+  fechaLimiteInstalacion      DateTime?            @map("fecha_limite_instalacion") @db.Timestamptz
+  planTarifario                PlanTarifario?       @map("plan_tarifario")
+  pagoMensual                  Decimal?             @map("pago_mensual") @db.Decimal(6, 2)
+  derechoInstalacion           Decimal?             @map("derecho_instalacion") @db.Decimal(6, 2)
+  trasladoInterior             Boolean              @default(false) @map("traslado_interior")
+  trasladoExterior             Boolean              @default(false) @map("traslado_exterior")
+  fechaReactivacionSuspension  DateTime?            @map("fecha_reactivacion_suspension") @db.Timestamptz
+  fechaActivacionSinDeuda      DateTime?            @map("fecha_activacion_sin_deuda") @db.Timestamptz
+  activo                        Boolean?             // null = aún no lo define jefe/administrador
+  datosCompletos                Boolean              @default(false) @map("datos_completos")
+  datosAdminCompletos           Boolean              @default(false) @map("datos_admin_completos")
+  materiales                    MaterialInstalacion[]
+
+
+  @@index([nombre])
+  @@index([apellido])
+  @@map("cliente")
+}
+
+model DocumentoCliente {
+  idDocumento      Int           @id @default(autoincrement()) @map("id_documento")
+  idCliente        Int           @map("id_cliente")
+  cliente          Cliente       @relation(fields: [idCliente], references: [idCliente], onDelete: Cascade)
+  tipoDocumento    TipoDocumento @map("tipo_documento")
+  numeroDocumento  String        @map("numero_documento") @db.VarChar(20)
+  tipoRuc          TipoRuc?      @map("tipo_ruc")
+  scannerDocumento String?       @map("scanner_documento") @db.Text
+
+  @@unique([tipoDocumento, numeroDocumento], name: "uq_tipo_numero_documento")
+  @@index([numeroDocumento])
+  @@index([idCliente])
+  @@map("documento_cliente")
+}
+
+model Telefono {
+  idTelefono Int     @id @default(autoincrement()) @map("id_telefono")
+  idCliente  Int     @map("id_cliente")
+  cliente    Cliente @relation(fields: [idCliente], references: [idCliente], onDelete: Cascade)
+  numero     String  @unique @db.VarChar(15)
+  principal  Boolean @default(false)
+
+  @@index([numero])
+  @@index([idCliente])
+  @@map("telefono")
+}
+enum RolUsuario {
+  JEFE
+  ADMINISTRADOR
+  TRABAJADOR
+
+  @@map("rol_usuario_enum")
+}
+
+enum EstadoAprobacionCliente {
+  PENDIENTE
+  ACEPTADO
+  RECHAZADO
+
+  @@map("estado_aprobacion_cliente_enum")
+}
+
+enum TipoSolicitud {
+  CREACION_CLIENTE
+  EDICION_CLIENTE
+  TRANSFERENCIA_CLIENTES
+  CREACION_TRABAJADOR
+
+  @@map("tipo_solicitud_enum")
+}
+
+enum EstadoSolicitud {
+  PENDIENTE
+  ACEPTADA
+  RECHAZADA
+
+  @@map("estado_solicitud_enum")
+}
+
+model Usuario {
+  idUsuario     Int         @id @default(autoincrement()) @map("id_usuario")
+  nombre        String      @db.VarChar(100)
+  correo        String      @unique @db.VarChar(150)
+  passwordHash  String      @map("password_hash")
+  rol           RolUsuario
+  idSupervisor  Int?        @map("id_supervisor")
+  supervisor    Usuario?    @relation("Jerarquia", fields: [idSupervisor], references: [idUsuario])
+  subordinados  Usuario[]   @relation("Jerarquia")
+  activo        Boolean     @default(true)
+  fechaCreacion DateTime    @default(now()) @map("fecha_creacion") @db.Timestamptz
+
+  clientesCreados      Cliente[]      @relation("ClienteCreadoPor")
+  clientesAsignados    Cliente[]      @relation("ClienteAsignadoA")
+  solicitudesHechas    Solicitud[]    @relation("Solicitante")
+  solicitudesResueltas Solicitud[]    @relation("Resolutor")
+  notificaciones       Notificacion[] @relation("NotificacionDestino")
+
+  @@index([idSupervisor])
+  @@map("usuario")
+}
+
+model Solicitud {
+  idSolicitud         Int             @id @default(autoincrement()) @map("id_solicitud")
+  tipo                TipoSolicitud
+  estado              EstadoSolicitud @default(PENDIENTE)
+
+  idSolicitante       Int             @map("id_solicitante")
+  solicitante         Usuario         @relation("Solicitante", fields: [idSolicitante], references: [idUsuario])
+
+  idResolutor         Int?            @map("id_resolutor")
+  resolutor           Usuario?        @relation("Resolutor", fields: [idResolutor], references: [idUsuario])
+
+  idCliente           Int?            @map("id_cliente")
+  cliente             Cliente?        @relation(fields: [idCliente], references: [idCliente])
+
+  idTrabajadorOrigen  Int?            @map("id_trabajador_origen")
+  idTrabajadorDestino Int?            @map("id_trabajador_destino")
+
+  datosPropuestos     Json?           @map("datos_propuestos")
+  comentario          String?         @db.Text
+
+  fechaSolicitud      DateTime        @default(now()) @map("fecha_solicitud") @db.Timestamptz
+  fechaResolucion     DateTime?       @map("fecha_resolucion") @db.Timestamptz
+
+  @@index([estado])
+  @@index([idSolicitante])
+  @@map("solicitud")
+}
+model Notificacion {
+  idNotificacion   Int      @id @default(autoincrement()) @map("id_notificacion")
+  idUsuarioDestino Int      @map("id_usuario_destino")
+  usuarioDestino   Usuario  @relation("NotificacionDestino", fields: [idUsuarioDestino], references: [idUsuario])
+  mensaje          String   @db.Text
+  leida            Boolean  @default(false)
+  fecha            DateTime @default(now()) @db.Timestamptz
+
+  @@index([idUsuarioDestino])
+  @@map("notificacion")
+}
+//-
+enum Nacionalidad {
+  PERUANA
+  EXTRANJERA
+
+  @@map("nacionalidad_enum")
+}
+
+enum UsoServicio {
+  HOGAR
+  RESIDENCIAL
+  COMERCIAL
+
+  @@map("uso_servicio_enum")
+}
+
+enum CondicionCliente {
+  INTEGRACION
+  MIGRACION
+
+  @@map("condicion_cliente_enum")
+}
+
+enum PlanTarifario {
+  MBPS_200
+  MBPS_400
+  MBPS_600
+  MBPS_800
+  GBPS_1
+
+  @@map("plan_tarifario_enum")
+}
+
+
+model MaterialInstalacion {
+  idMaterial Int          @id @default(autoincrement()) @map("id_material")
+  idCliente  Int          @map("id_cliente")
+  cliente    Cliente      @relation(fields: [idCliente], references: [idCliente], onDelete: Cascade)
+  tipo       TipoMaterial
+  cantidad   Int
+
+  @@index([idCliente])
+  @@map("material_instalacion")
+}
