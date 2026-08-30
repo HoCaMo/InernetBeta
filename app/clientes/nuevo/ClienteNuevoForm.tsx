@@ -3,11 +3,7 @@
 import { useTransition, useState, useRef } from "react";
 import Link from "next/link";
 import { crearClienteConSolicitud } from "@/app/solicitudes/actions";
-import {
-  PLAN_LABELS,
-  MATERIALES,
-  LONGITUD_DOCUMENTO,
-} from "@/app/lib/constantes";
+import { PLAN_LABELS, LONGITUD_DOCUMENTO } from "@/app/lib/constantes";
 
 const inputClass =
   "w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-white placeholder:text-slate-600 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/30";
@@ -22,7 +18,6 @@ export default function ClienteNuevoForm() {
   const [isPending, startTransition] = useTransition();
   const [enviado, setEnviado] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filasMaterial, setFilasMaterial] = useState([0]);
   const formRef = useRef<HTMLFormElement>(null);
 
   const [tipoDocumento, setTipoDocumento] = useState("DNI");
@@ -47,7 +42,6 @@ export default function ClienteNuevoForm() {
         await crearClienteConSolicitud(formData);
         setEnviado(true);
         formRef.current?.reset();
-        setFilasMaterial([0]);
         setNumeroDocumento("");
         setTipoDocumento("DNI");
       } catch (err) {
@@ -255,7 +249,9 @@ export default function ClienteNuevoForm() {
               ))}
             </select>
             <p className="mt-1 text-xs text-slate-500">
-              El pago mensual se calcula automáticamente según el plan.
+              El pago mensual se calcula automáticamente según el plan. El
+              derecho de instalación lo define el administrador o el jefe al
+              aceptar tu solicitud.
             </p>
           </div>
         </section>

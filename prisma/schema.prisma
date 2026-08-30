@@ -104,7 +104,6 @@ model Cliente {
   activo                        Boolean?             // null = aún no lo define jefe/administrador
   datosCompletos                Boolean              @default(false) @map("datos_completos")
   datosAdminCompletos           Boolean              @default(false) @map("datos_admin_completos")
-  materiales                    MaterialInstalacion[]
 
 
   @@index([nombre])
@@ -265,13 +264,3 @@ enum PlanTarifario {
 }
 
 
-model MaterialInstalacion {
-  idMaterial Int          @id @default(autoincrement()) @map("id_material")
-  idCliente  Int          @map("id_cliente")
-  cliente    Cliente      @relation(fields: [idCliente], references: [idCliente], onDelete: Cascade)
-  tipo       TipoMaterial
-  cantidad   Int
-
-  @@index([idCliente])
-  @@map("material_instalacion")
-}

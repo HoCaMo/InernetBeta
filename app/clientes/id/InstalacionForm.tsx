@@ -4,20 +4,16 @@ import { useTransition, useState } from "react";
 import { completarInstalacion } from "./actions";
 
 const inputClass =
-  "w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-white placeholder:text-slate-600 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/30";
+  "w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-white outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/30";
 const labelClass =
   "block font-mono text-[11px] uppercase tracking-wider text-slate-500 mb-1.5";
 
 export default function InstalacionForm({
   idCliente,
   activoActual,
-  derechoActual,
-  yaCompletado,
 }: {
   idCliente: number;
   activoActual: boolean | null;
-  derechoActual: number | null;
-  yaCompletado: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [mensaje, setMensaje] = useState<string | null>(null);
@@ -29,9 +25,7 @@ export default function InstalacionForm({
     startTransition(async () => {
       try {
         await completarInstalacion(idCliente, formData);
-        setMensaje(
-          "Datos de instalación guardados. Se notificó al trabajador.",
-        );
+        setMensaje("Estado actualizado. Se notificó al trabajador.");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Error al guardar");
       }
@@ -41,12 +35,11 @@ export default function InstalacionForm({
   return (
     <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
       <h2 className="mb-1 text-sm font-mono uppercase tracking-wider text-amber-500">
-        Activación y derecho de instalación
+        Estado de activación
       </h2>
       <p className="mb-4 text-xs text-slate-500">
-        {yaCompletado
-          ? "Ya se definió este paso. Puedes actualizarlo si es necesario."
-          : "Pendiente de definir."}
+        El derecho de instalación ya quedó definido al aceptar la solicitud del
+        cliente.
       </p>
 
       {mensaje && (
@@ -71,18 +64,6 @@ export default function InstalacionForm({
             <option value="no">No</option>
             <option value="si">Sí</option>
           </select>
-        </div>
-        <div>
-          <label className={labelClass}>Derecho de instalación (S/)</label>
-          <input
-            name="derechoInstalacion"
-            type="number"
-            step="0.01"
-            min="0"
-            defaultValue={derechoActual ?? 200}
-            required
-            className={inputClass}
-          />
         </div>
         <button
           type="submit"

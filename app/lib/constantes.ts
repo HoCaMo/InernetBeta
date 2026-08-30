@@ -21,15 +21,3 @@ export const LONGITUD_DOCUMENTO: Record<string, number> = {
   CE: 9,
   PASAPORTE: 9,
 };
-
-export const MATERIALES: { value: string; label: string }[] = [
-  { value: "ACOMETIDA", label: "Acometida" },
-  { value: "ROSETA", label: "Roseta" },
-  { value: "ROUTER_GPON", label: "Router GPON" },
-  { value: "PIG_TAIL", label: "Pig Tail" },
-  { value: "CONTENEDOR_MECANICO", label: "Contenedor Mecánico" },
-  { value: "GRAPAS", label: "Grapas" },
-  { value: "FUSION", label: "Fusión" },
-  { value: "PARCH_CORD", label: "Parch Cord" },
-  { value: "SMOOT", label: "Smoot" },
-];

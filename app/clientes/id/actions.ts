@@ -63,7 +63,8 @@ export async function eliminarDocumento(
 }
 
 // ---------------------------------------------------------
-// INSTALACIÓN (activo + derecho de instalación) — solo jefe/administrador
+// INSTALACIÓN: solo jefe/administrador, solo define "activo"
+// (el derecho de instalación ya se define al aceptar la solicitud)
 // ---------------------------------------------------------
 export async function completarInstalacion(
   idCliente: number,
@@ -80,22 +81,17 @@ export async function completarInstalacion(
   }
 
   const activo = formData.get("activo") === "si";
-  const derechoInstalacion = Number(formData.get("derechoInstalacion"));
-
-  if (Number.isNaN(derechoInstalacion) || derechoInstalacion < 0) {
-    throw new Error("Ingresa un monto válido para el derecho de instalación");
-  }
 
   const cliente = await prisma.cliente.update({
     where: { idCliente },
-    data: { activo, derechoInstalacion, datosAdminCompletos: true },
+    data: { activo },
   });
 
   if (cliente.idCreadoPor) {
     await prisma.notificacion.create({
       data: {
         idUsuarioDestino: cliente.idCreadoPor,
-        mensaje: `${session.user.name} (${session.user.rol}) completó la instalación de "${cliente.nombre} ${cliente.apellido}": activo = ${activo ? "Sí" : "No"}, derecho de instalación = S/ ${derechoInstalacion.toFixed(2)}.`,
+        mensaje: `${session.user.name} (${session.user.rol}) definió el estado de "${cliente.nombre} ${cliente.apellido}" como activo = ${activo ? "Sí" : "No"}.`,
       },
     });
   }

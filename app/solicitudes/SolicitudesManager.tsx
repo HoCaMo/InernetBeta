@@ -39,6 +39,8 @@ export default function SolicitudesManager({
 }) {
   const [isPending, startTransition] = useTransition();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Guarda el monto que se está escribiendo por cada solicitud de tipo CREACION_CLIENTE
+  const [montos, setMontos] = useState<Record<number, string>>({});
 
   function puedeResolver(s: SolicitudConRelaciones) {
     if (s.estado !== "PENDIENTE") return false;
@@ -60,6 +62,29 @@ export default function SolicitudesManager({
   ) {
     setErrorMsg(null);
 
+    if (s.tipo === "CREACION_CLIENTE" && decision === "ACEPTADA") {
+      const montoTexto = montos[s.idSolicitud];
+      const monto = Number(montoTexto);
+      if (!montoTexto || Number.isNaN(monto) || monto < 0) {
+        setErrorMsg(
+          "Ingresa un derecho de instalación válido antes de aceptar.",
+        );
+        return;
+      }
+      startTransition(async () => {
+        try {
+          await resolverSolicitudCliente(s.idSolicitud, decision, monto);
+        } catch (err) {
+          setErrorMsg(
+            err instanceof Error
+              ? err.message
+              : "Error al resolver la solicitud",
+          );
+        }
+      });
+      return;
+    }
+
     startTransition(async () => {
       try {
         if (s.tipo === "CREACION_CLIENTE" || s.tipo === "EDICION_CLIENTE") {
@@ -76,6 +101,7 @@ export default function SolicitudesManager({
       }
     });
   }
+
   return (
     <div>
       {errorMsg && (
@@ -123,7 +149,23 @@ export default function SolicitudesManager({
                 </td>
                 <td className="px-4 py-2.5">
                   {puedeResolver(s) ? (
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {s.tipo === "CREACION_CLIENTE" && (
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="Derecho S/"
+                          value={montos[s.idSolicitud] ?? ""}
+                          onChange={(e) =>
+                            setMontos((prev) => ({
+                              ...prev,
+                              [s.idSolicitud]: e.target.value,
+                            }))
+                          }
+                          className="w-24 rounded-lg border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs text-white outline-none focus:border-amber-500"
+                        />
+                      )}
                       <button
                         onClick={() => resolver(s, "ACEPTADA")}
                         disabled={isPending}

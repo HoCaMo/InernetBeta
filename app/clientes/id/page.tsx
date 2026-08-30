@@ -19,12 +19,7 @@ export default async function ClienteDetallePage({
 
   const cliente = await prisma.cliente.findUnique({
     where: { idCliente },
-    include: {
-      telefonos: true,
-      documentos: true,
-      ubigeo: true,
-      materiales: true,
-    },
+    include: { telefonos: true, documentos: true, ubigeo: true },
   });
 
   if (!cliente) {
@@ -80,7 +75,7 @@ export default async function ClienteDetallePage({
           Derecho de instalación:{" "}
           {cliente.derechoInstalacion
             ? `S/ ${cliente.derechoInstalacion}`
-            : "Sin definir"}
+            : "Sin definir (pendiente de aceptación)"}
         </p>
       </div>
 
@@ -89,12 +84,6 @@ export default async function ClienteDetallePage({
           <InstalacionForm
             idCliente={cliente.idCliente}
             activoActual={cliente.activo}
-            derechoActual={
-              cliente.derechoInstalacion
-                ? Number(cliente.derechoInstalacion)
-                : null
-            }
-            yaCompletado={cliente.datosAdminCompletos}
           />
         )}
       </div>
