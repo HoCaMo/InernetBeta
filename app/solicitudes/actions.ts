@@ -5,6 +5,7 @@ import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { PLAN_PRECIOS, LONGITUD_DOCUMENTO } from "@/app/lib/constantes";
+import { calcularFacturacionInicial } from "@/app/lib/facturacion";
 
 // ===========================================================
 // UTILIDAD INTERNA
@@ -16,6 +17,34 @@ async function verificarResolutor() {
     throw new Error("No tienes permisos para resolver solicitudes");
   }
   return session;
+}
+
+// Verifica que quien va a editar/eliminar un cliente tenga permiso:
+// - TRABAJADOR: solo sobre sus propios clientes
+// - ADMINISTRADOR: solo sobre clientes de trabajadores que supervisa
+async function verificarAccesoCliente(
+  idCliente: number,
+  idUsuario: number,
+  rol: string,
+) {
+  const cliente = await prisma.cliente.findUnique({
+    where: { idCliente },
+    include: { asignadoA: { select: { idSupervisor: true } } },
+  });
+  if (!cliente) throw new Error("Cliente no encontrado");
+
+  if (rol === "TRABAJADOR" && cliente.idAsignadoA !== idUsuario) {
+    throw new Error("Solo puedes solicitar cambios sobre tus propios clientes");
+  }
+  if (
+    rol === "ADMINISTRADOR" &&
+    cliente.asignadoA?.idSupervisor !== idUsuario
+  ) {
+    throw new Error(
+      "Solo puedes solicitar cambios sobre clientes de trabajadores que supervisas",
+    );
+  }
+  return cliente;
 }
 
 // ===========================================================
@@ -193,24 +222,28 @@ export async function crearClienteConSolicitud(formData: FormData) {
 }
 
 // ===========================================================
-// CLIENTES — solicitar edición (TRABAJADOR, sobre sus propios clientes)
+// CLIENTES — solicitar edición (TRABAJADOR sobre sus clientes, o
+// ADMINISTRADOR sobre clientes de trabajadores que supervisa)
 // ===========================================================
 export async function crearSolicitudEdicionCliente(
   idCliente: number,
   formData: FormData,
 ) {
   const session = await auth();
-  if (!session || session.user.rol !== "TRABAJADOR") {
+  if (
+    !session ||
+    (session.user.rol !== "TRABAJADOR" && session.user.rol !== "ADMINISTRADOR")
+  ) {
     throw new Error(
-      "Solo un trabajador puede solicitar la edición de un cliente",
+      "No tienes permiso para solicitar la edición de un cliente",
     );
   }
 
-  const cliente = await prisma.cliente.findUnique({ where: { idCliente } });
-  if (!cliente) throw new Error("Cliente no encontrado");
-  if (cliente.idAsignadoA !== session.user.idUsuario) {
-    throw new Error("Solo puedes solicitar cambios sobre tus propios clientes");
-  }
+  const cliente = await verificarAccesoCliente(
+    idCliente,
+    session.user.idUsuario,
+    session.user.rol,
+  );
 
   const cambios: Record<string, string> = {};
   const nombre = (formData.get("nombre") as string)?.trim();
@@ -239,39 +272,50 @@ export async function crearSolicitudEdicionCliente(
     },
   });
 
-  const mensaje = `${session.user.name} solicitó editar al cliente "${cliente.nombre} ${cliente.apellido}".`;
-  const supervisores = await prisma.usuario.findMany({
-    where: { rol: { in: ["JEFE", "ADMINISTRADOR"] } },
+  // Si lo pide un trabajador -> va a administrador/jefe. Si lo pide un administrador -> solo al jefe (no se auto-aprueba).
+  const destinatarios = await prisma.usuario.findMany({
+    where: {
+      rol:
+        session.user.rol === "ADMINISTRADOR"
+          ? "JEFE"
+          : { in: ["JEFE", "ADMINISTRADOR"] },
+    },
   });
+  const mensaje = `${session.user.name} (${session.user.rol}) solicitó editar al cliente "${cliente.nombre} ${cliente.apellido}".`;
   await prisma.notificacion.createMany({
-    data: supervisores.map((s) => ({ idUsuarioDestino: s.idUsuario, mensaje })),
+    data: destinatarios.map((d) => ({
+      idUsuarioDestino: d.idUsuario,
+      mensaje,
+    })),
   });
 
   revalidatePath("/solicitudes");
   revalidatePath("/trabajador");
+  revalidatePath("/administrador");
 }
 
 // ===========================================================
-// CLIENTES — solicitar eliminación (TRABAJADOR, sobre sus propios clientes)
+// CLIENTES — solicitar eliminación (TRABAJADOR o ADMINISTRADOR, con el mismo alcance que arriba)
 // ===========================================================
 export async function crearSolicitudEliminacionCliente(
   idCliente: number,
   comentario?: string,
 ) {
   const session = await auth();
-  if (!session || session.user.rol !== "TRABAJADOR") {
+  if (
+    !session ||
+    (session.user.rol !== "TRABAJADOR" && session.user.rol !== "ADMINISTRADOR")
+  ) {
     throw new Error(
-      "Solo un trabajador puede solicitar la eliminación de un cliente",
+      "No tienes permiso para solicitar la eliminación de un cliente",
     );
   }
 
-  const cliente = await prisma.cliente.findUnique({ where: { idCliente } });
-  if (!cliente) throw new Error("Cliente no encontrado");
-  if (cliente.idAsignadoA !== session.user.idUsuario) {
-    throw new Error(
-      "Solo puedes solicitar la eliminación de tus propios clientes",
-    );
-  }
+  const cliente = await verificarAccesoCliente(
+    idCliente,
+    session.user.idUsuario,
+    session.user.rol,
+  );
 
   await prisma.solicitud.create({
     data: {
@@ -282,20 +326,32 @@ export async function crearSolicitudEliminacionCliente(
     },
   });
 
-  const mensaje = `${session.user.name} solicitó ELIMINAR al cliente "${cliente.nombre} ${cliente.apellido}".`;
-  const supervisores = await prisma.usuario.findMany({
-    where: { rol: { in: ["JEFE", "ADMINISTRADOR"] } },
+  const destinatarios = await prisma.usuario.findMany({
+    where: {
+      rol:
+        session.user.rol === "ADMINISTRADOR"
+          ? "JEFE"
+          : { in: ["JEFE", "ADMINISTRADOR"] },
+    },
   });
+  const mensaje = `${session.user.name} (${session.user.rol}) solicitó ELIMINAR al cliente "${cliente.nombre} ${cliente.apellido}".`;
   await prisma.notificacion.createMany({
-    data: supervisores.map((s) => ({ idUsuarioDestino: s.idUsuario, mensaje })),
+    data: destinatarios.map((d) => ({
+      idUsuarioDestino: d.idUsuario,
+      mensaje,
+    })),
   });
 
   revalidatePath("/solicitudes");
   revalidatePath("/trabajador");
+  revalidatePath("/administrador");
 }
 
 // ===========================================================
-// CLIENTES — resolver CREACION / EDICION / ELIMINACION (ADMINISTRADOR o JEFE)
+// CLIENTES — resolver CREACION / EDICION / ELIMINACION
+// Regla: nadie aprueba su propia solicitud ni la de su mismo nivel.
+// - Si lo pidió un TRABAJADOR -> puede resolver ADMINISTRADOR o JEFE
+// - Si lo pidió un ADMINISTRADOR -> solo puede resolver JEFE
 // ===========================================================
 export async function resolverSolicitudCliente(
   idSolicitud: number,
@@ -305,7 +361,7 @@ export async function resolverSolicitudCliente(
 
   const solicitud = await prisma.solicitud.findUnique({
     where: { idSolicitud },
-    include: { cliente: true },
+    include: { cliente: true, solicitante: { select: { rol: true } } },
   });
 
   if (!solicitud) throw new Error("La solicitud no existe");
@@ -317,6 +373,14 @@ export async function resolverSolicitudCliente(
     solicitud.tipo !== "ELIMINACION_CLIENTE"
   ) {
     throw new Error("El tipo de solicitud no corresponde");
+  }
+  if (
+    solicitud.solicitante.rol === "ADMINISTRADOR" &&
+    session.user.rol !== "JEFE"
+  ) {
+    throw new Error(
+      "Una solicitud hecha por un administrador solo puede resolverla el jefe",
+    );
   }
 
   const resultado = await prisma.solicitud.updateMany({
@@ -338,6 +402,29 @@ export async function resolverSolicitudCliente(
           estadoAprobacion: decision === "ACEPTADA" ? "ACEPTADO" : "RECHAZADO",
         },
       });
+
+      // Al aceptar, se generan los 2 primeros recibos: instalación + mes 1 (pagado),
+      // y mes 2 con el descuento prorrateado por los días no usados del mes 1.
+      if (
+        decision === "ACEPTADA" &&
+        solicitud.cliente.fechaHoraInstalacion &&
+        solicitud.cliente.pagoMensual
+      ) {
+        const { recibo1, recibo2 } = calcularFacturacionInicial(
+          solicitud.cliente.fechaHoraInstalacion,
+          Number(solicitud.cliente.pagoMensual),
+          solicitud.cliente.tieneCostoInstalacion &&
+            solicitud.cliente.derechoInstalacion
+            ? Number(solicitud.cliente.derechoInstalacion)
+            : 0,
+        );
+        await prisma.pago.createMany({
+          data: [
+            { idCliente: solicitud.cliente.idCliente, ...recibo1 },
+            { idCliente: solicitud.cliente.idCliente, ...recibo2 },
+          ],
+        });
+      }
     } else if (
       solicitud.tipo === "EDICION_CLIENTE" &&
       decision === "ACEPTADA"
@@ -704,13 +791,44 @@ export async function crearSolicitudEditarTrabajador(
 
   const cambios: Record<string, string> = {};
   const nombre = (formData.get("nombre") as string)?.trim();
+  const correo = (formData.get("correo") as string)?.trim().toLowerCase();
+  const tipoDocumento = (formData.get("tipoDocumento") as string)?.trim();
+  const numeroDocumento = (formData.get("numeroDocumento") as string)?.trim();
   const telefono = (formData.get("telefono") as string)?.trim();
 
   if (nombre && nombre !== trabajador.nombre) cambios.nombre = nombre;
+  if (correo && correo !== trabajador.correo) cambios.correo = correo;
+  if (tipoDocumento && tipoDocumento !== trabajador.tipoDocumento)
+    cambios.tipoDocumento = tipoDocumento;
+  if (numeroDocumento && numeroDocumento !== trabajador.numeroDocumento)
+    cambios.numeroDocumento = numeroDocumento;
   if (telefono && telefono !== trabajador.telefono) cambios.telefono = telefono;
 
   if (Object.keys(cambios).length === 0) {
     throw new Error("No hiciste ningún cambio respecto a los datos actuales");
+  }
+
+  // Si cambia correo, documento o teléfono, verificar que no choque con otro usuario
+  if (cambios.correo) {
+    const existe = await prisma.usuario.findUnique({
+      where: { correo: cambios.correo },
+    });
+    if (existe && existe.idUsuario !== idTrabajador)
+      throw new Error("Ese correo ya pertenece a otro usuario");
+  }
+  if (cambios.numeroDocumento) {
+    const existe = await prisma.usuario.findUnique({
+      where: { numeroDocumento: cambios.numeroDocumento },
+    });
+    if (existe && existe.idUsuario !== idTrabajador)
+      throw new Error("Ese número de documento ya pertenece a otro usuario");
+  }
+  if (cambios.telefono) {
+    const existe = await prisma.usuario.findUnique({
+      where: { telefono: cambios.telefono },
+    });
+    if (existe && existe.idUsuario !== idTrabajador)
+      throw new Error("Ese número de celular ya pertenece a otro usuario");
   }
 
   await prisma.solicitud.create({
@@ -834,7 +952,7 @@ export async function crearSolicitudCambiarSupervisor(
 }
 
 // ===========================================================
-// TRABAJADORES — resolver EDICION / ELIMINACION / CAMBIO_SUPERVISOR (JEFE)
+// TRABAJADORES — resolver EDICION / ELIMINACION / CAMBIO_SUPERVISOR (siempre JEFE)
 // ===========================================================
 export async function resolverSolicitudTrabajadorGestion(
   idSolicitud: number,
@@ -878,10 +996,9 @@ export async function resolverSolicitudTrabajadorGestion(
         >;
         await tx.usuario.update({
           where: { idUsuario: solicitud.idTrabajadorOrigen! },
-          data: cambios,
+          data: cambios as never,
         });
       } else if (solicitud.tipo === "ELIMINACION_TRABAJADOR") {
-        // Baja lógica: se desactiva en vez de borrar (preserva historial de clientes y solicitudes)
         await tx.usuario.update({
           where: { idUsuario: solicitud.idTrabajadorOrigen! },
           data: { activo: false },

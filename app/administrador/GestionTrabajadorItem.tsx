@@ -12,6 +12,8 @@ type Trabajador = {
   nombre: string;
   correo: string;
   telefono: string | null;
+  tipoDocumento: string | null;
+  numeroDocumento: string | null;
 };
 type Administrador = { idUsuario: number; nombre: string };
 
@@ -88,7 +90,10 @@ export default function GestionTrabajadorItem({
         <div>
           <p className="text-sm text-slate-200">{trabajador.nombre}</p>
           <p className="text-xs text-slate-500">
-            {trabajador.correo} · {trabajador.telefono ?? "—"}
+            {trabajador.correo} · {trabajador.telefono ?? "—"} ·{" "}
+            {trabajador.tipoDocumento
+              ? `${trabajador.tipoDocumento} ${trabajador.numeroDocumento}`
+              : "sin documento"}
           </p>
         </div>
         <div className="flex gap-2 text-xs">
@@ -117,25 +122,50 @@ export default function GestionTrabajadorItem({
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
 
       {accion === "editar" && (
-        <form action={handleEditar} className="mt-2 flex flex-wrap gap-2">
+        <form
+          action={handleEditar}
+          className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5"
+        >
           <input
             name="nombre"
-            placeholder="Nuevo nombre (opcional)"
+            placeholder="Nombre"
             defaultValue={trabajador.nombre}
             className={inputClass}
           />
           <input
+            name="correo"
+            placeholder="Correo"
+            defaultValue={trabajador.correo}
+            className={inputClass}
+          />
+          <select
+            name="tipoDocumento"
+            defaultValue={trabajador.tipoDocumento ?? "DNI"}
+            className={inputClass}
+          >
+            <option value="DNI">DNI</option>
+            <option value="PASAPORTE">Pasaporte</option>
+            <option value="CE">CE</option>
+            <option value="RUC">RUC</option>
+          </select>
+          <input
+            name="numeroDocumento"
+            placeholder="N.° documento"
+            defaultValue={trabajador.numeroDocumento ?? ""}
+            className={inputClass}
+          />
+          <input
             name="telefono"
-            placeholder="Nuevo celular (opcional)"
+            placeholder="Celular"
             defaultValue={trabajador.telefono ?? ""}
             className={inputClass}
           />
           <button
             type="submit"
             disabled={isPending}
-            className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-amber-400"
+            className="col-span-2 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-medium text-slate-950 hover:bg-amber-400 sm:col-span-5"
           >
-            Enviar solicitud
+            Enviar solicitud de edición
           </button>
         </form>
       )}

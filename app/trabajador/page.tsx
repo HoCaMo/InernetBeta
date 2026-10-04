@@ -17,6 +17,7 @@ export default async function TrabajadorPage() {
 
   const clientes = await prisma.cliente.findMany({
     where: { idAsignadoA: session.user.idUsuario },
+    include: { telefonos: { where: { principal: true }, take: 1 } },
     orderBy: { fechaRegistro: "desc" },
   });
 
@@ -41,12 +42,14 @@ export default async function TrabajadorPage() {
         <h2 className="mb-4 text-sm font-mono uppercase tracking-wider text-slate-400">
           Mis clientes ({clientes.length})
         </h2>
-        <div className="overflow-hidden rounded-xl border border-slate-800">
+        <div className="overflow-x-auto rounded-xl border border-slate-800">
           <table className="w-full text-sm">
             <thead className="bg-slate-900 text-slate-500">
               <tr className="text-left font-mono text-[11px] uppercase tracking-wider">
                 <th className="px-4 py-2.5">Nombre</th>
-                <th className="px-4 py-2.5">Correo</th>
+                <th className="px-4 py-2.5">Teléfono</th>
+                <th className="px-4 py-2.5">Instalación</th>
+                <th className="px-4 py-2.5">Derecho instal.</th>
                 <th className="px-4 py-2.5">Estado</th>
               </tr>
             </thead>
@@ -57,10 +60,27 @@ export default async function TrabajadorPage() {
                   className="border-t border-slate-800 text-slate-200"
                 >
                   <td className="px-4 py-2.5">
-                    {c.nombre} {c.apellido ?? ""}
+                    <Link
+                      href={`/clientes/${c.idCliente}`}
+                      className="text-amber-400 hover:underline"
+                    >
+                      {c.nombre} {c.apellido ?? ""}
+                    </Link>
                   </td>
                   <td className="px-4 py-2.5 text-slate-400">
-                    {c.correo ?? "—"}
+                    {c.telefonos[0]?.numero ?? "—"}
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-400">
+                    {c.fechaHoraInstalacion
+                      ? new Date(c.fechaHoraInstalacion).toLocaleDateString(
+                          "es-PE",
+                        )
+                      : "—"}
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-400">
+                    {c.tieneCostoInstalacion
+                      ? `Sí (S/ ${Number(c.derechoInstalacion).toFixed(2)})`
+                      : "No"}
                   </td>
                   <td className="px-4 py-2.5">
                     <span
@@ -74,7 +94,7 @@ export default async function TrabajadorPage() {
               {clientes.length === 0 && (
                 <tr>
                   <td
-                    colSpan={3}
+                    colSpan={5}
                     className="px-4 py-6 text-center text-slate-500"
                   >
                     Aún no has generado clientes.
