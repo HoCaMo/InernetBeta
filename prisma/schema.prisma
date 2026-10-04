@@ -85,6 +85,8 @@ model Cliente {
   estadoAprobacion     EstadoAprobacionCliente @default(PENDIENTE) @map("estado_aprobacion")
   solicitudes          Solicitud[]
 
+  pagos Pago[]
+
   documentos DocumentoCliente[]
   telefonos  Telefono[]
 
@@ -93,19 +95,17 @@ model Cliente {
   usoServicio                 UsoServicio?         @map("uso_servicio")
   condicionCliente            CondicionCliente?    @map("condicion_cliente")
   fechaInicio                 DateTime?            @map("fecha_inicio") @db.Timestamptz
-  fechaLimiteInstalacion      DateTime?            @map("fecha_limite_instalacion") @db.Timestamptz
   planTarifario                PlanTarifario?       @map("plan_tarifario")
   pagoMensual                  Decimal?             @map("pago_mensual") @db.Decimal(6, 2)
   derechoInstalacion           Decimal?             @map("derecho_instalacion") @db.Decimal(6, 2)
-  trasladoInterior             Boolean              @default(false) @map("traslado_interior")
-  trasladoExterior             Boolean              @default(false) @map("traslado_exterior")
-  fechaReactivacionSuspension  DateTime?            @map("fecha_reactivacion_suspension") @db.Timestamptz
-  fechaActivacionSinDeuda      DateTime?            @map("fecha_activacion_sin_deuda") @db.Timestamptz
   activo                        Boolean?             // null = aún no lo define jefe/administrador
   datosCompletos                Boolean              @default(false) @map("datos_completos")
   datosAdminCompletos           Boolean              @default(false) @map("datos_admin_completos")
-
-
+  tipoAccion              TipoAccion?       @map("tipo_accion")
+  tipoInstalacion         TipoInstalacion?  @map("tipo_instalacion")
+  fechaHoraInstalacion    DateTime?         @map("fecha_hora_instalacion") @db.Timestamptz
+  tieneCostoInstalacion   Boolean           @default(false) @map("tiene_costo_instalacion")
+  fechaLimiteInstalacion      DateTime?            @map("fecha_limite_instalacion") @db.Timestamptz
   @@index([nombre])
   @@index([apellido])
   @@map("cliente")
@@ -156,8 +156,12 @@ enum EstadoAprobacionCliente {
 enum TipoSolicitud {
   CREACION_CLIENTE
   EDICION_CLIENTE
+  ELIMINACION_CLIENTE
   TRANSFERENCIA_CLIENTES
   CREACION_TRABAJADOR
+  EDICION_TRABAJADOR
+  ELIMINACION_TRABAJADOR
+  CAMBIO_SUPERVISOR_TRABAJADOR
 
   @@map("tipo_solicitud_enum")
 }
@@ -187,6 +191,9 @@ model Usuario {
   solicitudesHechas    Solicitud[]    @relation("Solicitante")
   solicitudesResueltas Solicitud[]    @relation("Resolutor")
   notificaciones       Notificacion[] @relation("NotificacionDestino")
+  tipoDocumento   TipoDocumento?  @map("tipo_documento")
+  numeroDocumento String?         @unique @map("numero_documento")
+  telefono        String?         @unique
 
   @@index([idSupervisor])
   @@map("usuario")
@@ -204,8 +211,8 @@ model Solicitud {
   resolutor           Usuario?        @relation("Resolutor", fields: [idResolutor], references: [idUsuario])
 
   idCliente           Int?            @map("id_cliente")
-  cliente             Cliente?        @relation(fields: [idCliente], references: [idCliente])
-
+  cliente             Cliente?        @relation(fields: [idCliente], references: [idCliente], onDelete: SetNull)
+  
   idTrabajadorOrigen  Int?            @map("id_trabajador_origen")
   idTrabajadorDestino Int?            @map("id_trabajador_destino")
 
@@ -214,6 +221,9 @@ model Solicitud {
 
   fechaSolicitud      DateTime        @default(now()) @map("fecha_solicitud") @db.Timestamptz
   fechaResolucion     DateTime?       @map("fecha_resolucion") @db.Timestamptz
+
+  idNuevoSupervisor      Int?   @map("id_nuevo_supervisor")
+  idsClientesTransferir  Int[]  @map("ids_clientes_transferir")
 
   @@index([estado])
   @@index([idSolicitante])
@@ -229,6 +239,37 @@ model Notificacion {
 
   @@index([idUsuarioDestino])
   @@map("notificacion")
+}
+//pago
+enum EstadoPago {
+  PENDIENTE
+  PAGADO
+  VENCIDO
+ 
+  @@map("estado_pago_enum")
+}
+model Pago {
+  idPago           Int        @id @default(autoincrement()) @map("id_pago")
+  idCliente        Int        @map("id_cliente")
+  cliente          Cliente    @relation(fields: [idCliente], references: [idCliente], onDelete: Cascade)
+ 
+  periodo          String     @db.VarChar(7) // formato "2026-02"
+  concepto         String     @db.VarChar(150)
+ 
+  monto            Decimal    @db.Decimal(8, 2)
+  descuento        Decimal    @default(0) @db.Decimal(8, 2)
+  montoFinal       Decimal    @map("monto_final") @db.Decimal(8, 2)
+ 
+  fechaEmision     DateTime   @map("fecha_emision") @db.Timestamptz
+  fechaVencimiento DateTime   @map("fecha_vencimiento") @db.Timestamptz
+  fechaPago        DateTime?  @map("fecha_pago") @db.Timestamptz
+ 
+  estado           EstadoPago @default(PENDIENTE)
+ 
+  @@unique([idCliente, periodo], name: "uq_pago_cliente_periodo")
+  @@index([idCliente])
+  @@index([estado])
+  @@map("pago")
 }
 //-
 enum Nacionalidad {
@@ -262,5 +303,18 @@ enum PlanTarifario {
 
   @@map("plan_tarifario_enum")
 }
-
+enum TipoAccion {
+  INSTALACION_NUEVA
+  TRASLADO
+  REACTIVACION
+ 
+  @@map("tipo_accion_enum")
+}
+ 
+enum TipoInstalacion {
+  FIJO
+  NO_FIJO
+ 
+  @@map("tipo_instalacion_enum")
+}
 

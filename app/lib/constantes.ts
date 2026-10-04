@@ -21,3 +21,14 @@ export const LONGITUD_DOCUMENTO: Record<string, number> = {
   CE: 9,
   PASAPORTE: 9,
 };
+
+export const TIPO_ACCION_LABELS: Record<string, string> = {
+  INSTALACION_NUEVA: "Instalación nueva",
+  TRASLADO: "Traslado",
+  REACTIVACION: "Reactivación",
+};
+
+export const TIPO_INSTALACION_LABELS: Record<string, string> = {
+  FIJO: "Fijo",
+  NO_FIJO: "No fijo",
+};

@@ -5,6 +5,7 @@ import {
   resolverSolicitudCliente,
   resolverSolicitudTransferencia,
   resolverSolicitudTrabajador,
+  resolverSolicitudTrabajadorGestion,
 } from "./actions";
 
 type SolicitudConRelaciones = {
@@ -12,6 +13,8 @@ type SolicitudConRelaciones = {
   tipo: string;
   estado: string;
   fechaSolicitud: string | Date;
+  comentario: string | null;
+  datosPropuestos: unknown;
   solicitante: { nombre: string; rol: string };
   resolutor: { nombre: string } | null;
   cliente: { nombre: string; apellido: string | null } | null;
@@ -25,10 +28,34 @@ const estadoBadge: Record<string, string> = {
 
 const tipoLabel: Record<string, string> = {
   CREACION_CLIENTE: "Nuevo cliente",
-  EDICION_CLIENTE: "Edición de cliente",
-  TRANSFERENCIA_CLIENTES: "Transferencia",
+  EDICION_CLIENTE: "Editar cliente",
+  ELIMINACION_CLIENTE: "Eliminar cliente",
+  TRANSFERENCIA_CLIENTES: "Transferencia de clientes",
   CREACION_TRABAJADOR: "Nuevo trabajador",
+  EDICION_TRABAJADOR: "Editar trabajador",
+  ELIMINACION_TRABAJADOR: "Eliminar trabajador",
+  CAMBIO_SUPERVISOR_TRABAJADOR: "Cambiar de administrador",
 };
+
+// Tipos que solo puede resolver el Jefe
+const SOLO_JEFE = new Set([
+  "TRANSFERENCIA_CLIENTES",
+  "CREACION_TRABAJADOR",
+  "EDICION_TRABAJADOR",
+  "ELIMINACION_TRABAJADOR",
+  "CAMBIO_SUPERVISOR_TRABAJADOR",
+]);
+
+function resumenPropuesta(s: SolicitudConRelaciones): string | null {
+  if (s.tipo === "EDICION_CLIENTE" || s.tipo === "EDICION_TRABAJADOR") {
+    const datos = s.datosPropuestos as Record<string, string> | null;
+    if (!datos) return null;
+    return Object.entries(datos)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(" · ");
+  }
+  return s.comentario;
+}
 
 export default function SolicitudesManager({
   solicitudes,
@@ -39,21 +66,11 @@ export default function SolicitudesManager({
 }) {
   const [isPending, startTransition] = useTransition();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  // Guarda el monto que se está escribiendo por cada solicitud de tipo CREACION_CLIENTE
-  const [montos, setMontos] = useState<Record<number, string>>({});
 
   function puedeResolver(s: SolicitudConRelaciones) {
     if (s.estado !== "PENDIENTE") return false;
-    if (s.tipo === "CREACION_CLIENTE" || s.tipo === "EDICION_CLIENTE") {
-      return rolActual === "ADMINISTRADOR" || rolActual === "JEFE";
-    }
-    if (
-      s.tipo === "TRANSFERENCIA_CLIENTES" ||
-      s.tipo === "CREACION_TRABAJADOR"
-    ) {
-      return rolActual === "JEFE";
-    }
-    return false;
+    if (SOLO_JEFE.has(s.tipo)) return rolActual === "JEFE";
+    return rolActual === "ADMINISTRADOR" || rolActual === "JEFE";
   }
 
   function resolver(
@@ -61,38 +78,24 @@ export default function SolicitudesManager({
     decision: "ACEPTADA" | "RECHAZADA",
   ) {
     setErrorMsg(null);
-
-    if (s.tipo === "CREACION_CLIENTE" && decision === "ACEPTADA") {
-      const montoTexto = montos[s.idSolicitud];
-      const monto = Number(montoTexto);
-      if (!montoTexto || Number.isNaN(monto) || monto < 0) {
-        setErrorMsg(
-          "Ingresa un derecho de instalación válido antes de aceptar.",
-        );
-        return;
-      }
-      startTransition(async () => {
-        try {
-          await resolverSolicitudCliente(s.idSolicitud, decision, monto);
-        } catch (err) {
-          setErrorMsg(
-            err instanceof Error
-              ? err.message
-              : "Error al resolver la solicitud",
-          );
-        }
-      });
-      return;
-    }
-
     startTransition(async () => {
       try {
-        if (s.tipo === "CREACION_CLIENTE" || s.tipo === "EDICION_CLIENTE") {
+        if (
+          s.tipo === "CREACION_CLIENTE" ||
+          s.tipo === "EDICION_CLIENTE" ||
+          s.tipo === "ELIMINACION_CLIENTE"
+        ) {
           await resolverSolicitudCliente(s.idSolicitud, decision);
         } else if (s.tipo === "TRANSFERENCIA_CLIENTES") {
           await resolverSolicitudTransferencia(s.idSolicitud, decision);
         } else if (s.tipo === "CREACION_TRABAJADOR") {
           await resolverSolicitudTrabajador(s.idSolicitud, decision);
+        } else if (
+          s.tipo === "EDICION_TRABAJADOR" ||
+          s.tipo === "ELIMINACION_TRABAJADOR" ||
+          s.tipo === "CAMBIO_SUPERVISOR_TRABAJADOR"
+        ) {
+          await resolverSolicitudTrabajadorGestion(s.idSolicitud, decision);
         }
       } catch (err) {
         setErrorMsg(
@@ -114,7 +117,7 @@ export default function SolicitudesManager({
           <thead className="bg-slate-900 text-slate-500">
             <tr className="text-left font-mono text-[11px] uppercase tracking-wider">
               <th className="px-4 py-2.5">Tipo</th>
-              <th className="px-4 py-2.5">Cliente</th>
+              <th className="px-4 py-2.5">Detalle</th>
               <th className="px-4 py-2.5">Solicitante</th>
               <th className="px-4 py-2.5">Estado</th>
               <th className="px-4 py-2.5">Resuelto por</th>
@@ -128,10 +131,10 @@ export default function SolicitudesManager({
                 className="border-t border-slate-800 text-slate-200"
               >
                 <td className="px-4 py-2.5">{tipoLabel[s.tipo] ?? s.tipo}</td>
-                <td className="px-4 py-2.5 text-slate-400">
+                <td className="max-w-xs px-4 py-2.5 text-slate-400">
                   {s.cliente
                     ? `${s.cliente.nombre} ${s.cliente.apellido ?? ""}`
-                    : "—"}
+                    : (resumenPropuesta(s) ?? "—")}
                 </td>
                 <td className="px-4 py-2.5 text-slate-400">
                   {s.solicitante.nombre}{" "}
@@ -149,23 +152,7 @@ export default function SolicitudesManager({
                 </td>
                 <td className="px-4 py-2.5">
                   {puedeResolver(s) ? (
-                    <div className="flex flex-wrap items-center gap-2">
-                      {s.tipo === "CREACION_CLIENTE" && (
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="Derecho S/"
-                          value={montos[s.idSolicitud] ?? ""}
-                          onChange={(e) =>
-                            setMontos((prev) => ({
-                              ...prev,
-                              [s.idSolicitud]: e.target.value,
-                            }))
-                          }
-                          className="w-24 rounded-lg border border-slate-700 bg-slate-950/60 px-2 py-1 text-xs text-white outline-none focus:border-amber-500"
-                        />
-                      )}
+                    <div className="flex gap-2">
                       <button
                         onClick={() => resolver(s, "ACEPTADA")}
                         disabled={isPending}

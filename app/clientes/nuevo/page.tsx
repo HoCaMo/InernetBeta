@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import { prisma } from "@/app/lib/db";
 import Shell from "@/app/components/Shell";
 import ClienteNuevoForm from "./ClienteNuevoForm";
 
@@ -17,6 +18,14 @@ export default async function NuevoClientePage() {
     );
   }
 
+  const ubigeos = await prisma.ubigeo.findMany({
+    orderBy: [
+      { departamento: "asc" },
+      { provincia: "asc" },
+      { distrito: "asc" },
+    ],
+  });
+
   return (
     <Shell nombre={session.user.name ?? ""} rol="TRABAJADOR">
       <h1 className="mb-1 text-2xl font-semibold text-white">
@@ -24,10 +33,9 @@ export default async function NuevoClientePage() {
       </h1>
       <p className="mb-8 text-sm text-slate-400">
         Completa todos los campos obligatorios (*). El cliente quedará pendiente
-        hasta que un administrador o el jefe lo revise, y también se les
-        notificará para definir el derecho de instalación y la activación.
+        hasta que un administrador o el jefe lo revise.
       </p>
-      <ClienteNuevoForm />
+      <ClienteNuevoForm ubigeos={ubigeos} />
     </Shell>
   );
 }

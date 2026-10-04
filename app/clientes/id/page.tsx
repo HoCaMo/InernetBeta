@@ -5,7 +5,11 @@ import ClienteDetalle from "./ClienteDetalle";
 import InstalacionForm from "./InstalacionForm";
 import Shell from "@/app/components/Shell";
 import Link from "next/link";
-import { PLAN_LABELS } from "@/app/lib/constantes";
+import {
+  PLAN_LABELS,
+  TIPO_ACCION_LABELS,
+  TIPO_INSTALACION_LABELS,
+} from "@/app/lib/constantes";
 
 export default async function ClienteDetallePage({
   params,
@@ -52,9 +56,31 @@ export default async function ClienteDetallePage({
         </p>
         <p>Correo: {cliente.correo ?? "—"}</p>
         <p>Domicilio: {cliente.direccion ?? "—"}</p>
+        <p>
+          Ubigeo:{" "}
+          {cliente.ubigeo
+            ? `${cliente.ubigeo.departamento} / ${cliente.ubigeo.provincia} / ${cliente.ubigeo.distrito}`
+            : "—"}
+        </p>
         <p>Nacionalidad: {cliente.nacionalidad ?? "—"}</p>
         <p>Uso del servicio: {cliente.usoServicio ?? "—"}</p>
         <p>Condición: {cliente.condicionCliente ?? "—"}</p>
+        <p>
+          Tipo de acción:{" "}
+          {cliente.tipoAccion ? TIPO_ACCION_LABELS[cliente.tipoAccion] : "—"}
+        </p>
+        <p>
+          Fijo / No fijo:{" "}
+          {cliente.tipoInstalacion
+            ? TIPO_INSTALACION_LABELS[cliente.tipoInstalacion]
+            : "—"}
+        </p>
+        <p>
+          Fecha y hora de instalación:{" "}
+          {cliente.fechaHoraInstalacion
+            ? new Date(cliente.fechaHoraInstalacion).toLocaleString("es-PE")
+            : "—"}
+        </p>
         <p>
           Plan:{" "}
           {cliente.planTarifario ? PLAN_LABELS[cliente.planTarifario] : "—"}
@@ -73,9 +99,9 @@ export default async function ClienteDetallePage({
         </p>
         <p>
           Derecho de instalación:{" "}
-          {cliente.derechoInstalacion
-            ? `S/ ${cliente.derechoInstalacion}`
-            : "Sin definir (pendiente de aceptación)"}
+          {cliente.tieneCostoInstalacion
+            ? `S/ ${cliente.derechoInstalacion} (definido por el trabajador)`
+            : "No aplica"}
         </p>
       </div>
 

@@ -6,9 +6,21 @@ import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { PLAN_PRECIOS, LONGITUD_DOCUMENTO } from "@/app/lib/constantes";
 
-// ---------------------------------------------------------
-// TRABAJADOR: genera un cliente + solicitud de aprobación
-// ---------------------------------------------------------
+// ===========================================================
+// UTILIDAD INTERNA
+// ===========================================================
+async function verificarResolutor() {
+  const session = await auth();
+  if (!session) throw new Error("No tienes una sesión activa");
+  if (session.user.rol !== "JEFE" && session.user.rol !== "ADMINISTRADOR") {
+    throw new Error("No tienes permisos para resolver solicitudes");
+  }
+  return session;
+}
+
+// ===========================================================
+// CLIENTES — creación (TRABAJADOR)
+// ===========================================================
 export async function crearClienteConSolicitud(formData: FormData) {
   const session = await auth();
   if (!session || session.user.rol !== "TRABAJADOR") {
@@ -33,6 +45,9 @@ export async function crearClienteConSolicitud(formData: FormData) {
   const departamento = formData.get("departamento") as string;
   const provincia = formData.get("provincia") as string;
   const distrito = formData.get("distrito") as string;
+  if (!departamento || !provincia || !distrito) {
+    throw new Error("Selecciona departamento, provincia y distrito");
+  }
   const nacionalidad = formData.get("nacionalidad") as string;
 
   const tipoCliente: "NACIONAL" | "EXTRANJERO" | "EMPRESA" =
@@ -42,14 +57,46 @@ export async function crearClienteConSolicitud(formData: FormData) {
         ? "EXTRANJERO"
         : "NACIONAL";
 
-  const ahora = new Date();
-  const fechaLimite = new Date(ahora);
-  fechaLimite.setDate(fechaLimite.getDate() + 1);
-  fechaLimite.setHours(17, 0, 0, 0);
+  const fechaTexto = formData.get("fechaInstalacion") as string;
+  const horaTexto = formData.get("horaInstalacion") as string;
+  const minutoTexto = formData.get("minutoInstalacion") as string;
+  const periodo = formData.get("periodoInstalacion") as string;
 
-  const reactivacionSuspension =
-    formData.get("reactivacionSuspension") === "si";
-  const activacionSinDeuda = formData.get("activacionSinDeuda") === "si";
+  if (!fechaTexto || !horaTexto || !minutoTexto || !periodo) {
+    throw new Error("Completa la fecha y hora de instalación");
+  }
+
+  const hora12 = Number(horaTexto);
+  if (Number.isNaN(hora12) || hora12 < 1 || hora12 > 12) {
+    throw new Error("Hora de instalación inválida");
+  }
+  let hora24: number;
+  if (periodo === "AM") {
+    hora24 = hora12 === 12 ? 0 : hora12;
+  } else {
+    hora24 = hora12 === 12 ? 12 : hora12 + 12;
+  }
+
+  const fechaHoraInstalacion = new Date(
+    `${fechaTexto}T${String(hora24).padStart(2, "0")}:${minutoTexto}:00`,
+  );
+  if (Number.isNaN(fechaHoraInstalacion.getTime())) {
+    throw new Error("La fecha y hora de instalación no es válida");
+  }
+
+  const tipoAccion = formData.get("tipoAccion") as string;
+  const tipoInstalacion = formData.get("tipoInstalacion") as string;
+
+  const tieneCostoInstalacion = formData.get("tieneCostoInstalacion") === "si";
+  let derechoInstalacion: number | null = null;
+  if (tieneCostoInstalacion) {
+    derechoInstalacion = Number(formData.get("derechoInstalacion"));
+    if (Number.isNaN(derechoInstalacion) || derechoInstalacion < 0) {
+      throw new Error("Ingresa un monto válido para el derecho de instalación");
+    }
+  }
+
+  const ahora = new Date();
 
   await prisma.$transaction(async (tx) => {
     let ubigeo = await tx.ubigeo.findFirst({
@@ -75,13 +122,13 @@ export async function crearClienteConSolicitud(formData: FormData) {
         usoServicio: formData.get("usoServicio") as never,
         condicionCliente: formData.get("condicionCliente") as never,
         fechaInicio: ahora,
-        fechaLimiteInstalacion: fechaLimite,
+        fechaHoraInstalacion,
+        tipoAccion: tipoAccion as never,
+        tipoInstalacion: tipoInstalacion as never,
         planTarifario: planTarifario as never,
         pagoMensual,
-        trasladoInterior: formData.get("trasladoInterior") === "si",
-        trasladoExterior: formData.get("trasladoExterior") === "si",
-        fechaReactivacionSuspension: reactivacionSuspension ? ahora : null,
-        fechaActivacionSinDeuda: activacionSinDeuda ? ahora : null,
+        tieneCostoInstalacion,
+        derechoInstalacion,
         idCreadoPor: idUsuario,
         idAsignadoA: idUsuario,
         estadoAprobacion: "PENDIENTE",
@@ -124,11 +171,12 @@ export async function crearClienteConSolicitud(formData: FormData) {
       },
     });
 
-    let mensaje = `Cliente "${cliente.nombre} ${cliente.apellido}" generado por ${session.user.name}. Plazo de instalación: ${fechaLimite.toLocaleString("es-PE")}. Falta definir el derecho de instalación al aceptar la solicitud.`;
-    if (reactivacionSuspension)
-      mensaje += ` ⚠ Requiere reactivación por suspensión de deuda (registrada hoy).`;
-    if (activacionSinDeuda)
-      mensaje += ` ⚠ Requiere activación/reinstalación sin deuda (registrada hoy).`;
+    const mensaje =
+      `Cliente "${cliente.nombre} ${cliente.apellido}" generado por ${session.user.name}. ` +
+      `Instalación programada: ${fechaHoraInstalacion.toLocaleString("es-PE")}. ` +
+      (tieneCostoInstalacion
+        ? `Derecho de instalación: S/ ${derechoInstalacion?.toFixed(2)}.`
+        : "Sin cobro de derecho de instalación.");
 
     const supervisores = await tx.usuario.findMany({
       where: { rol: { in: ["JEFE", "ADMINISTRADOR"] } },
@@ -144,162 +192,114 @@ export async function crearClienteConSolicitud(formData: FormData) {
   revalidatePath("/trabajador");
 }
 
-// ---------------------------------------------------------
-// ADMINISTRADOR: solicita transferir clientes de un trabajador a otro
-// ---------------------------------------------------------
-export async function crearSolicitudTransferencia(
-  idTrabajadorOrigen: number,
-  idTrabajadorDestino: number,
-  comentario?: string,
+// ===========================================================
+// CLIENTES — solicitar edición (TRABAJADOR, sobre sus propios clientes)
+// ===========================================================
+export async function crearSolicitudEdicionCliente(
+  idCliente: number,
+  formData: FormData,
 ) {
   const session = await auth();
-  if (!session || session.user.rol !== "ADMINISTRADOR") {
-    throw new Error("Solo un administrador puede solicitar transferencias");
-  }
-
-  const idSolicitante = session.user.idUsuario;
-
-  if (idTrabajadorOrigen === idTrabajadorDestino) {
-    throw new Error("El trabajador de origen y destino no pueden ser el mismo");
-  }
-
-  const [trabajadorOrigen, trabajadorDestino] = await Promise.all([
-    prisma.usuario.findUnique({ where: { idUsuario: idTrabajadorOrigen } }),
-    prisma.usuario.findUnique({ where: { idUsuario: idTrabajadorDestino } }),
-  ]);
-
-  if (!trabajadorOrigen) throw new Error("El trabajador de origen no existe");
-  if (!trabajadorDestino) throw new Error("El trabajador de destino no existe");
-  if (trabajadorOrigen.rol !== "TRABAJADOR")
-    throw new Error("El usuario de origen no es un trabajador");
-  if (trabajadorDestino.rol !== "TRABAJADOR")
-    throw new Error("El usuario de destino no es un trabajador");
-
-  if (trabajadorOrigen.idSupervisor !== idSolicitante) {
+  if (!session || session.user.rol !== "TRABAJADOR") {
     throw new Error(
-      "No puedes solicitar la transferencia de un trabajador que no está bajo tu supervisión",
+      "Solo un trabajador puede solicitar la edición de un cliente",
     );
   }
 
-  const solicitud = await prisma.solicitud.create({
+  const cliente = await prisma.cliente.findUnique({ where: { idCliente } });
+  if (!cliente) throw new Error("Cliente no encontrado");
+  if (cliente.idAsignadoA !== session.user.idUsuario) {
+    throw new Error("Solo puedes solicitar cambios sobre tus propios clientes");
+  }
+
+  const cambios: Record<string, string> = {};
+  const nombre = (formData.get("nombre") as string)?.trim();
+  const apellido = (formData.get("apellido") as string)?.trim();
+  const correo = (formData.get("correo") as string)?.trim();
+  const domicilioInstalacion = (
+    formData.get("domicilioInstalacion") as string
+  )?.trim();
+
+  if (nombre && nombre !== cliente.nombre) cambios.nombre = nombre;
+  if (apellido && apellido !== cliente.apellido) cambios.apellido = apellido;
+  if (correo && correo !== cliente.correo) cambios.correo = correo;
+  if (domicilioInstalacion && domicilioInstalacion !== cliente.direccion)
+    cambios.direccion = domicilioInstalacion;
+
+  if (Object.keys(cambios).length === 0) {
+    throw new Error("No hiciste ningún cambio respecto a los datos actuales");
+  }
+
+  await prisma.solicitud.create({
     data: {
-      tipo: "TRANSFERENCIA_CLIENTES",
-      idSolicitante,
-      idTrabajadorOrigen,
-      idTrabajadorDestino,
+      tipo: "EDICION_CLIENTE",
+      idSolicitante: session.user.idUsuario,
+      idCliente,
+      datosPropuestos: cambios,
+    },
+  });
+
+  const mensaje = `${session.user.name} solicitó editar al cliente "${cliente.nombre} ${cliente.apellido}".`;
+  const supervisores = await prisma.usuario.findMany({
+    where: { rol: { in: ["JEFE", "ADMINISTRADOR"] } },
+  });
+  await prisma.notificacion.createMany({
+    data: supervisores.map((s) => ({ idUsuarioDestino: s.idUsuario, mensaje })),
+  });
+
+  revalidatePath("/solicitudes");
+  revalidatePath("/trabajador");
+}
+
+// ===========================================================
+// CLIENTES — solicitar eliminación (TRABAJADOR, sobre sus propios clientes)
+// ===========================================================
+export async function crearSolicitudEliminacionCliente(
+  idCliente: number,
+  comentario?: string,
+) {
+  const session = await auth();
+  if (!session || session.user.rol !== "TRABAJADOR") {
+    throw new Error(
+      "Solo un trabajador puede solicitar la eliminación de un cliente",
+    );
+  }
+
+  const cliente = await prisma.cliente.findUnique({ where: { idCliente } });
+  if (!cliente) throw new Error("Cliente no encontrado");
+  if (cliente.idAsignadoA !== session.user.idUsuario) {
+    throw new Error(
+      "Solo puedes solicitar la eliminación de tus propios clientes",
+    );
+  }
+
+  await prisma.solicitud.create({
+    data: {
+      tipo: "ELIMINACION_CLIENTE",
+      idSolicitante: session.user.idUsuario,
+      idCliente,
       comentario: comentario?.trim() || null,
     },
   });
 
-  const jefes = await prisma.usuario.findMany({
-    where: { rol: "JEFE", activo: true },
+  const mensaje = `${session.user.name} solicitó ELIMINAR al cliente "${cliente.nombre} ${cliente.apellido}".`;
+  const supervisores = await prisma.usuario.findMany({
+    where: { rol: { in: ["JEFE", "ADMINISTRADOR"] } },
   });
-
-  const mensaje =
-    `El administrador ${session.user.name} solicitó transferir ` +
-    `los clientes de ${trabajadorOrigen.nombre} hacia ${trabajadorDestino.nombre}.` +
-    (comentario?.trim() ? ` Motivo: ${comentario.trim()}` : "");
-
-  if (jefes.length > 0) {
-    await prisma.notificacion.createMany({
-      data: jefes.map((jefe) => ({
-        idUsuarioDestino: jefe.idUsuario,
-        mensaje,
-      })),
-    });
-  }
+  await prisma.notificacion.createMany({
+    data: supervisores.map((s) => ({ idUsuarioDestino: s.idUsuario, mensaje })),
+  });
 
   revalidatePath("/solicitudes");
-  revalidatePath("/administrador");
-
-  return { success: true, idSolicitud: solicitud.idSolicitud };
+  revalidatePath("/trabajador");
 }
 
-// ---------------------------------------------------------
-// ADMINISTRADOR: solicita crear un trabajador nuevo
-// ---------------------------------------------------------
-export async function crearSolicitudTrabajador(formData: FormData) {
-  const session = await auth();
-  if (!session || session.user.rol !== "ADMINISTRADOR") {
-    throw new Error("Solo un administrador puede solicitar trabajadores");
-  }
-
-  const idSolicitante = session.user.idUsuario;
-  const nombre = (formData.get("nombre") as string)?.trim();
-  const correo = (formData.get("correo") as string)?.trim().toLowerCase();
-  const password = formData.get("password") as string;
-
-  if (!nombre) throw new Error("El nombre es obligatorio");
-  if (!correo) throw new Error("El correo es obligatorio");
-  if (!password) throw new Error("La contraseña es obligatoria");
-  if (password.length < 6)
-    throw new Error("La contraseña debe tener al menos 6 caracteres");
-
-  const usuarioExistente = await prisma.usuario.findUnique({
-    where: { correo },
-  });
-  if (usuarioExistente)
-    throw new Error("Ya existe un usuario registrado con ese correo");
-
-  const solicitudesPendientes = await prisma.solicitud.findMany({
-    where: { tipo: "CREACION_TRABAJADOR", estado: "PENDIENTE" },
-  });
-  const solicitudDuplicada = solicitudesPendientes.find((solicitud) => {
-    const datos = solicitud.datosPropuestos as { correo?: string } | null;
-    return datos?.correo?.toLowerCase() === correo;
-  });
-  if (solicitudDuplicada)
-    throw new Error("Ya existe una solicitud pendiente para este correo");
-
-  const solicitud = await prisma.solicitud.create({
-    data: {
-      tipo: "CREACION_TRABAJADOR",
-      idSolicitante,
-      datosPropuestos: { nombre, correo, password },
-    },
-  });
-
-  const jefes = await prisma.usuario.findMany({
-    where: { rol: "JEFE", activo: true },
-  });
-  const mensaje = `El administrador ${session.user.name} solicitó crear un nuevo trabajador: ${nombre} (${correo}).`;
-
-  if (jefes.length > 0) {
-    await prisma.notificacion.createMany({
-      data: jefes.map((jefe) => ({
-        idUsuarioDestino: jefe.idUsuario,
-        mensaje,
-      })),
-    });
-  }
-
-  revalidatePath("/solicitudes");
-  revalidatePath("/administrador");
-
-  return { success: true, idSolicitud: solicitud.idSolicitud };
-}
-
-// ---------------------------------------------------------
-// Utilidad interna: valida que quien resuelve sea Jefe o Administrador
-// ---------------------------------------------------------
-async function verificarResolutor() {
-  const session = await auth();
-  if (!session) throw new Error("No tienes una sesión activa");
-  if (session.user.rol !== "JEFE" && session.user.rol !== "ADMINISTRADOR") {
-    throw new Error("No tienes permisos para resolver solicitudes");
-  }
-  return session;
-}
-
-// ---------------------------------------------------------
-// ADMINISTRADOR / JEFE: resolver solicitud de cliente
-// Al ACEPTAR una CREACION_CLIENTE, es obligatorio indicar el
-// derecho de instalación en ese mismo momento.
-// ---------------------------------------------------------
+// ===========================================================
+// CLIENTES — resolver CREACION / EDICION / ELIMINACION (ADMINISTRADOR o JEFE)
+// ===========================================================
 export async function resolverSolicitudCliente(
   idSolicitud: number,
   decision: "ACEPTADA" | "RECHAZADA",
-  derechoInstalacion?: number,
 ) {
   const session = await verificarResolutor();
 
@@ -313,24 +313,12 @@ export async function resolverSolicitudCliente(
     throw new Error("Esta solicitud ya fue resuelta");
   if (
     solicitud.tipo !== "CREACION_CLIENTE" &&
-    solicitud.tipo !== "EDICION_CLIENTE"
+    solicitud.tipo !== "EDICION_CLIENTE" &&
+    solicitud.tipo !== "ELIMINACION_CLIENTE"
   ) {
     throw new Error("El tipo de solicitud no corresponde");
   }
 
-  if (decision === "ACEPTADA" && solicitud.tipo === "CREACION_CLIENTE") {
-    if (
-      derechoInstalacion === undefined ||
-      Number.isNaN(derechoInstalacion) ||
-      derechoInstalacion < 0
-    ) {
-      throw new Error(
-        "Debes indicar un derecho de instalación válido para aceptar este cliente",
-      );
-    }
-  }
-
-  // Actualización atómica: solo gana quien llegue primero
   const resultado = await prisma.solicitud.updateMany({
     where: { idSolicitud, estado: "PENDIENTE" },
     data: {
@@ -339,23 +327,37 @@ export async function resolverSolicitudCliente(
       fechaResolucion: new Date(),
     },
   });
-
-  if (resultado.count === 0) {
+  if (resultado.count === 0)
     throw new Error("Esta solicitud ya fue resuelta por otro usuario");
-  }
 
-  if (solicitud.tipo === "CREACION_CLIENTE" && solicitud.cliente) {
-    await prisma.cliente.update({
-      where: { idCliente: solicitud.cliente.idCliente },
-      data:
-        decision === "ACEPTADA"
-          ? {
-              estadoAprobacion: "ACEPTADO",
-              derechoInstalacion,
-              datosAdminCompletos: true,
-            }
-          : { estadoAprobacion: "RECHAZADO" },
-    });
+  if (solicitud.cliente) {
+    if (solicitud.tipo === "CREACION_CLIENTE") {
+      await prisma.cliente.update({
+        where: { idCliente: solicitud.cliente.idCliente },
+        data: {
+          estadoAprobacion: decision === "ACEPTADA" ? "ACEPTADO" : "RECHAZADO",
+        },
+      });
+    } else if (
+      solicitud.tipo === "EDICION_CLIENTE" &&
+      decision === "ACEPTADA"
+    ) {
+      const cambios = (solicitud.datosPropuestos ?? {}) as Record<
+        string,
+        string
+      >;
+      await prisma.cliente.update({
+        where: { idCliente: solicitud.cliente.idCliente },
+        data: cambios,
+      });
+    } else if (
+      solicitud.tipo === "ELIMINACION_CLIENTE" &&
+      decision === "ACEPTADA"
+    ) {
+      await prisma.cliente.delete({
+        where: { idCliente: solicitud.cliente.idCliente },
+      });
+    }
   }
 
   await prisma.notificacion.create({
@@ -363,8 +365,8 @@ export async function resolverSolicitudCliente(
       idUsuarioDestino: solicitud.idSolicitante,
       mensaje:
         decision === "ACEPTADA"
-          ? `Tu solicitud de cliente "${solicitud.cliente?.nombre ?? ""}" fue aceptada por ${session.user.name}. Derecho de instalación: S/ ${derechoInstalacion?.toFixed(2)}.`
-          : `Tu solicitud de cliente "${solicitud.cliente?.nombre ?? ""}" fue rechazada por ${session.user.name}.`,
+          ? `Tu solicitud sobre "${solicitud.cliente?.nombre ?? "el cliente"}" fue aceptada por ${session.user.name}.`
+          : `Tu solicitud sobre "${solicitud.cliente?.nombre ?? "el cliente"}" fue rechazada por ${session.user.name}.`,
     },
   });
 
@@ -375,9 +377,82 @@ export async function resolverSolicitudCliente(
   return { success: true };
 }
 
-// ---------------------------------------------------------
-// JEFE: resolver transferencia de clientes
-// ---------------------------------------------------------
+// ===========================================================
+// CLIENTES — transferir uno o varios clientes a otro trabajador (ADMINISTRADOR)
+// ===========================================================
+export async function crearSolicitudTransferencia(
+  idTrabajadorOrigen: number,
+  idTrabajadorDestino: number,
+  idsClientes: number[],
+  comentario?: string,
+) {
+  const session = await auth();
+  if (!session || session.user.rol !== "ADMINISTRADOR") {
+    throw new Error("Solo un administrador puede solicitar transferencias");
+  }
+  const idSolicitante = session.user.idUsuario;
+
+  if (idTrabajadorOrigen === idTrabajadorDestino) {
+    throw new Error("El trabajador de origen y destino no pueden ser el mismo");
+  }
+  if (!idsClientes || idsClientes.length === 0) {
+    throw new Error("Selecciona al menos un cliente para transferir");
+  }
+
+  const [trabajadorOrigen, trabajadorDestino] = await Promise.all([
+    prisma.usuario.findUnique({ where: { idUsuario: idTrabajadorOrigen } }),
+    prisma.usuario.findUnique({ where: { idUsuario: idTrabajadorDestino } }),
+  ]);
+  if (!trabajadorOrigen) throw new Error("El trabajador de origen no existe");
+  if (!trabajadorDestino) throw new Error("El trabajador de destino no existe");
+  if (trabajadorOrigen.rol !== "TRABAJADOR")
+    throw new Error("El usuario de origen no es un trabajador");
+  if (trabajadorDestino.rol !== "TRABAJADOR")
+    throw new Error("El usuario de destino no es un trabajador");
+  if (trabajadorOrigen.idSupervisor !== idSolicitante) {
+    throw new Error(
+      "No puedes solicitar la transferencia de un trabajador que no está bajo tu supervisión",
+    );
+  }
+
+  const clientesValidos = await prisma.cliente.findMany({
+    where: { idCliente: { in: idsClientes }, idAsignadoA: idTrabajadorOrigen },
+  });
+  if (clientesValidos.length !== idsClientes.length) {
+    throw new Error(
+      "Alguno de los clientes seleccionados no pertenece a ese trabajador",
+    );
+  }
+
+  const solicitud = await prisma.solicitud.create({
+    data: {
+      tipo: "TRANSFERENCIA_CLIENTES",
+      idSolicitante,
+      idTrabajadorOrigen,
+      idTrabajadorDestino,
+      idsClientesTransferir: idsClientes,
+      comentario: comentario?.trim() || null,
+    },
+  });
+
+  const jefes = await prisma.usuario.findMany({
+    where: { rol: "JEFE", activo: true },
+  });
+  const mensaje =
+    `El administrador ${session.user.name} solicitó transferir ${idsClientes.length} cliente(s) ` +
+    `de ${trabajadorOrigen.nombre} hacia ${trabajadorDestino.nombre}.` +
+    (comentario?.trim() ? ` Motivo: ${comentario.trim()}` : "");
+  if (jefes.length > 0) {
+    await prisma.notificacion.createMany({
+      data: jefes.map((j) => ({ idUsuarioDestino: j.idUsuario, mensaje })),
+    });
+  }
+
+  revalidatePath("/solicitudes");
+  revalidatePath("/administrador");
+  return { success: true, idSolicitud: solicitud.idSolicitud };
+}
+
 export async function resolverSolicitudTransferencia(
   idSolicitud: number,
   decision: "ACEPTADA" | "RECHAZADA",
@@ -394,18 +469,16 @@ export async function resolverSolicitudTransferencia(
     throw new Error("Esta solicitud ya fue resuelta");
   if (solicitud.tipo !== "TRANSFERENCIA_CLIENTES")
     throw new Error("Esta solicitud no es una transferencia");
-  if (!solicitud.idTrabajadorOrigen || !solicitud.idTrabajadorDestino) {
-    throw new Error("La solicitud no tiene trabajadores definidos");
-  }
+  if (!solicitud.idTrabajadorDestino)
+    throw new Error("La solicitud no tiene trabajador destino");
 
   await prisma.$transaction(async (tx) => {
     if (decision === "ACEPTADA") {
       await tx.cliente.updateMany({
-        where: { idAsignadoA: solicitud.idTrabajadorOrigen },
+        where: { idCliente: { in: solicitud.idsClientesTransferir } },
         data: { idAsignadoA: solicitud.idTrabajadorDestino },
       });
     }
-
     await tx.solicitud.update({
       where: { idSolicitud },
       data: {
@@ -414,13 +487,12 @@ export async function resolverSolicitudTransferencia(
         fechaResolucion: new Date(),
       },
     });
-
     await tx.notificacion.create({
       data: {
         idUsuarioDestino: solicitud.idSolicitante,
         mensaje:
           decision === "ACEPTADA"
-            ? `La transferencia de clientes fue aceptada por ${session.user.name}.`
+            ? `La transferencia de ${solicitud.idsClientesTransferir.length} cliente(s) fue aceptada por ${session.user.name}.`
             : `La transferencia de clientes fue rechazada por ${session.user.name}.`,
       },
     });
@@ -429,21 +501,105 @@ export async function resolverSolicitudTransferencia(
   revalidatePath("/solicitudes");
   revalidatePath("/administrador");
   revalidatePath("/trabajador");
-
   return { success: true };
 }
 
-// ---------------------------------------------------------
-// JEFE: resolver la creación de un trabajador
-// ---------------------------------------------------------
+// ===========================================================
+// TRABAJADORES — solicitar creación (ADMINISTRADOR), con más datos
+// ===========================================================
+export async function crearSolicitudTrabajador(formData: FormData) {
+  const session = await auth();
+  if (!session || session.user.rol !== "ADMINISTRADOR") {
+    throw new Error("Solo un administrador puede solicitar trabajadores");
+  }
+  const idSolicitante = session.user.idUsuario;
+
+  const nombre = (formData.get("nombre") as string)?.trim();
+  const correo = (formData.get("correo") as string)?.trim().toLowerCase();
+  const password = formData.get("password") as string;
+  const tipoDocumento = formData.get("tipoDocumento") as string;
+  const numeroDocumento = (formData.get("numeroDocumento") as string)?.trim();
+  const telefono = (formData.get("telefono") as string)?.trim();
+
+  if (!nombre) throw new Error("El nombre es obligatorio");
+  if (!correo) throw new Error("El correo es obligatorio");
+  if (!password || password.length < 6)
+    throw new Error("La contraseña debe tener al menos 6 caracteres");
+  if (!tipoDocumento) throw new Error("Selecciona el tipo de identificación");
+  if (!numeroDocumento)
+    throw new Error("El número de identificación es obligatorio");
+  const longitudEsperada = LONGITUD_DOCUMENTO[tipoDocumento];
+  if (longitudEsperada && numeroDocumento.length !== longitudEsperada) {
+    throw new Error(
+      `El número de ${tipoDocumento} debe tener exactamente ${longitudEsperada} caracteres`,
+    );
+  }
+  if (!telefono) throw new Error("El número de celular es obligatorio");
+
+  const [correoExistente, documentoExistente, telefonoExistente] =
+    await Promise.all([
+      prisma.usuario.findUnique({ where: { correo } }),
+      prisma.usuario.findUnique({ where: { numeroDocumento } }),
+      prisma.usuario.findUnique({ where: { telefono } }),
+    ]);
+  if (correoExistente)
+    throw new Error("Ya existe un usuario registrado con ese correo");
+  if (documentoExistente)
+    throw new Error(
+      "Ya existe un usuario registrado con ese número de identificación",
+    );
+  if (telefonoExistente)
+    throw new Error(
+      "Ya existe un usuario registrado con ese número de celular",
+    );
+
+  const solicitudesPendientes = await prisma.solicitud.findMany({
+    where: { tipo: "CREACION_TRABAJADOR", estado: "PENDIENTE" },
+  });
+  const duplicada = solicitudesPendientes.find((s) => {
+    const datos = s.datosPropuestos as { correo?: string } | null;
+    return datos?.correo?.toLowerCase() === correo;
+  });
+  if (duplicada)
+    throw new Error("Ya existe una solicitud pendiente para este correo");
+
+  const solicitud = await prisma.solicitud.create({
+    data: {
+      tipo: "CREACION_TRABAJADOR",
+      idSolicitante,
+      datosPropuestos: {
+        nombre,
+        correo,
+        password,
+        tipoDocumento,
+        numeroDocumento,
+        telefono,
+      },
+    },
+  });
+
+  const jefes = await prisma.usuario.findMany({
+    where: { rol: "JEFE", activo: true },
+  });
+  const mensaje = `El administrador ${session.user.name} solicitó crear un nuevo trabajador: ${nombre} (${correo}).`;
+  if (jefes.length > 0) {
+    await prisma.notificacion.createMany({
+      data: jefes.map((j) => ({ idUsuarioDestino: j.idUsuario, mensaje })),
+    });
+  }
+
+  revalidatePath("/solicitudes");
+  revalidatePath("/administrador");
+  return { success: true, idSolicitud: solicitud.idSolicitud };
+}
+
 export async function resolverSolicitudTrabajador(
   idSolicitud: number,
   decision: "ACEPTADA" | "RECHAZADA",
 ) {
   const session = await verificarResolutor();
-  if (session.user.rol !== "JEFE") {
+  if (session.user.rol !== "JEFE")
     throw new Error("Solo un jefe puede resolver solicitudes de trabajadores");
-  }
 
   const solicitud = await prisma.solicitud.findUnique({
     where: { idSolicitud },
@@ -458,8 +614,10 @@ export async function resolverSolicitudTrabajador(
     nombre?: string;
     correo?: string;
     password?: string;
+    tipoDocumento?: string;
+    numeroDocumento?: string;
+    telefono?: string;
   } | null;
-
   if (!datos?.nombre || !datos?.correo || !datos?.password) {
     throw new Error("Los datos del trabajador están incompletos");
   }
@@ -467,6 +625,9 @@ export async function resolverSolicitudTrabajador(
   const nombreTrabajador = datos.nombre;
   const correoTrabajador = datos.correo;
   const passwordTrabajador = datos.password;
+  const tipoDocTrabajador = datos.tipoDocumento;
+  const numeroDocTrabajador = datos.numeroDocumento;
+  const telefonoTrabajador = datos.telefono;
 
   await prisma.$transaction(async (tx) => {
     if (decision === "ACEPTADA") {
@@ -485,6 +646,9 @@ export async function resolverSolicitudTrabajador(
           passwordHash,
           rol: "TRABAJADOR",
           idSupervisor: solicitud.idSolicitante,
+          tipoDocumento: tipoDocTrabajador as never,
+          numeroDocumento: numeroDocTrabajador,
+          telefono: telefonoTrabajador,
         },
       });
     }
@@ -511,6 +675,247 @@ export async function resolverSolicitudTrabajador(
 
   revalidatePath("/solicitudes");
   revalidatePath("/administrador");
+  return { success: true };
+}
 
+// ===========================================================
+// TRABAJADORES — solicitar edición (ADMINISTRADOR, sobre su propio trabajador)
+// ===========================================================
+export async function crearSolicitudEditarTrabajador(
+  idTrabajador: number,
+  formData: FormData,
+) {
+  const session = await auth();
+  if (!session || session.user.rol !== "ADMINISTRADOR") {
+    throw new Error(
+      "Solo un administrador puede solicitar editar un trabajador",
+    );
+  }
+
+  const trabajador = await prisma.usuario.findUnique({
+    where: { idUsuario: idTrabajador },
+  });
+  if (!trabajador) throw new Error("Trabajador no encontrado");
+  if (trabajador.idSupervisor !== session.user.idUsuario) {
+    throw new Error(
+      "Solo puedes editar trabajadores que están bajo tu supervisión",
+    );
+  }
+
+  const cambios: Record<string, string> = {};
+  const nombre = (formData.get("nombre") as string)?.trim();
+  const telefono = (formData.get("telefono") as string)?.trim();
+
+  if (nombre && nombre !== trabajador.nombre) cambios.nombre = nombre;
+  if (telefono && telefono !== trabajador.telefono) cambios.telefono = telefono;
+
+  if (Object.keys(cambios).length === 0) {
+    throw new Error("No hiciste ningún cambio respecto a los datos actuales");
+  }
+
+  await prisma.solicitud.create({
+    data: {
+      tipo: "EDICION_TRABAJADOR",
+      idSolicitante: session.user.idUsuario,
+      idTrabajadorOrigen: idTrabajador,
+      datosPropuestos: cambios,
+    },
+  });
+
+  const jefes = await prisma.usuario.findMany({
+    where: { rol: "JEFE", activo: true },
+  });
+  const mensaje = `El administrador ${session.user.name} solicitó editar los datos del trabajador ${trabajador.nombre}.`;
+  await prisma.notificacion.createMany({
+    data: jefes.map((j) => ({ idUsuarioDestino: j.idUsuario, mensaje })),
+  });
+
+  revalidatePath("/solicitudes");
+  revalidatePath("/administrador");
+}
+
+// ===========================================================
+// TRABAJADORES — solicitar eliminación (ADMINISTRADOR)
+// ===========================================================
+export async function crearSolicitudEliminarTrabajador(
+  idTrabajador: number,
+  comentario?: string,
+) {
+  const session = await auth();
+  if (!session || session.user.rol !== "ADMINISTRADOR") {
+    throw new Error(
+      "Solo un administrador puede solicitar eliminar un trabajador",
+    );
+  }
+
+  const trabajador = await prisma.usuario.findUnique({
+    where: { idUsuario: idTrabajador },
+  });
+  if (!trabajador) throw new Error("Trabajador no encontrado");
+  if (trabajador.idSupervisor !== session.user.idUsuario) {
+    throw new Error(
+      "Solo puedes eliminar trabajadores que están bajo tu supervisión",
+    );
+  }
+
+  await prisma.solicitud.create({
+    data: {
+      tipo: "ELIMINACION_TRABAJADOR",
+      idSolicitante: session.user.idUsuario,
+      idTrabajadorOrigen: idTrabajador,
+      comentario: comentario?.trim() || null,
+    },
+  });
+
+  const jefes = await prisma.usuario.findMany({
+    where: { rol: "JEFE", activo: true },
+  });
+  const mensaje = `El administrador ${session.user.name} solicitó ELIMINAR al trabajador ${trabajador.nombre}.`;
+  await prisma.notificacion.createMany({
+    data: jefes.map((j) => ({ idUsuarioDestino: j.idUsuario, mensaje })),
+  });
+
+  revalidatePath("/solicitudes");
+  revalidatePath("/administrador");
+}
+
+// ===========================================================
+// TRABAJADORES — solicitar cambio de supervisor / administrador (ADMINISTRADOR)
+// ===========================================================
+export async function crearSolicitudCambiarSupervisor(
+  idTrabajador: number,
+  idNuevoAdministrador: number,
+  comentario?: string,
+) {
+  const session = await auth();
+  if (!session || session.user.rol !== "ADMINISTRADOR") {
+    throw new Error("Solo un administrador puede solicitar este cambio");
+  }
+
+  const trabajador = await prisma.usuario.findUnique({
+    where: { idUsuario: idTrabajador },
+  });
+  if (!trabajador) throw new Error("Trabajador no encontrado");
+  if (trabajador.idSupervisor !== session.user.idUsuario) {
+    throw new Error(
+      "Solo puedes transferir trabajadores que están bajo tu supervisión",
+    );
+  }
+
+  const nuevoAdministrador = await prisma.usuario.findUnique({
+    where: { idUsuario: idNuevoAdministrador },
+  });
+  if (!nuevoAdministrador || nuevoAdministrador.rol !== "ADMINISTRADOR") {
+    throw new Error("El nuevo administrador no es válido");
+  }
+
+  await prisma.solicitud.create({
+    data: {
+      tipo: "CAMBIO_SUPERVISOR_TRABAJADOR",
+      idSolicitante: session.user.idUsuario,
+      idTrabajadorOrigen: idTrabajador,
+      idNuevoSupervisor: idNuevoAdministrador,
+      comentario: comentario?.trim() || null,
+    },
+  });
+
+  const jefes = await prisma.usuario.findMany({
+    where: { rol: "JEFE", activo: true },
+  });
+  const mensaje =
+    `El administrador ${session.user.name} solicitó pasar al trabajador ${trabajador.nombre} ` +
+    `hacia el administrador ${nuevoAdministrador.nombre}.`;
+  await prisma.notificacion.createMany({
+    data: jefes.map((j) => ({ idUsuarioDestino: j.idUsuario, mensaje })),
+  });
+
+  revalidatePath("/solicitudes");
+  revalidatePath("/administrador");
+}
+
+// ===========================================================
+// TRABAJADORES — resolver EDICION / ELIMINACION / CAMBIO_SUPERVISOR (JEFE)
+// ===========================================================
+export async function resolverSolicitudTrabajadorGestion(
+  idSolicitud: number,
+  decision: "ACEPTADA" | "RECHAZADA",
+) {
+  const session = await verificarResolutor();
+  if (session.user.rol !== "JEFE")
+    throw new Error("Solo un jefe puede resolver este tipo de solicitud");
+
+  const solicitud = await prisma.solicitud.findUnique({
+    where: { idSolicitud },
+  });
+  if (!solicitud) throw new Error("La solicitud no existe");
+  if (solicitud.estado !== "PENDIENTE")
+    throw new Error("Esta solicitud ya fue resuelta");
+  if (
+    solicitud.tipo !== "EDICION_TRABAJADOR" &&
+    solicitud.tipo !== "ELIMINACION_TRABAJADOR" &&
+    solicitud.tipo !== "CAMBIO_SUPERVISOR_TRABAJADOR"
+  ) {
+    throw new Error("El tipo de solicitud no corresponde");
+  }
+  if (!solicitud.idTrabajadorOrigen)
+    throw new Error("La solicitud no tiene trabajador asociado");
+
+  await prisma.$transaction(async (tx) => {
+    await tx.solicitud.update({
+      where: { idSolicitud },
+      data: {
+        estado: decision,
+        idResolutor: session.user.idUsuario,
+        fechaResolucion: new Date(),
+      },
+    });
+
+    if (decision === "ACEPTADA") {
+      if (solicitud.tipo === "EDICION_TRABAJADOR") {
+        const cambios = (solicitud.datosPropuestos ?? {}) as Record<
+          string,
+          string
+        >;
+        await tx.usuario.update({
+          where: { idUsuario: solicitud.idTrabajadorOrigen! },
+          data: cambios,
+        });
+      } else if (solicitud.tipo === "ELIMINACION_TRABAJADOR") {
+        // Baja lógica: se desactiva en vez de borrar (preserva historial de clientes y solicitudes)
+        await tx.usuario.update({
+          where: { idUsuario: solicitud.idTrabajadorOrigen! },
+          data: { activo: false },
+        });
+      } else if (solicitud.tipo === "CAMBIO_SUPERVISOR_TRABAJADOR") {
+        if (!solicitud.idNuevoSupervisor)
+          throw new Error("Falta el nuevo supervisor");
+        await tx.usuario.update({
+          where: { idUsuario: solicitud.idTrabajadorOrigen! },
+          data: { idSupervisor: solicitud.idNuevoSupervisor },
+        });
+      }
+    }
+
+    const etiqueta =
+      solicitud.tipo === "EDICION_TRABAJADOR"
+        ? "editar"
+        : solicitud.tipo === "ELIMINACION_TRABAJADOR"
+          ? "eliminar"
+          : "cambiar de administrador a";
+
+    await tx.notificacion.create({
+      data: {
+        idUsuarioDestino: solicitud.idSolicitante,
+        mensaje:
+          decision === "ACEPTADA"
+            ? `Tu solicitud para ${etiqueta} al trabajador fue aceptada por ${session.user.name}.`
+            : `Tu solicitud para ${etiqueta} al trabajador fue rechazada por ${session.user.name}.`,
+      },
+    });
+  });
+
+  revalidatePath("/solicitudes");
+  revalidatePath("/administrador");
+  revalidatePath("/jefe");
   return { success: true };
 }

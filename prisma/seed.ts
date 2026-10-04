@@ -1,88 +1,71 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { randomBytes } from "crypto";
 
 const prisma = new PrismaClient();
 
+// Genera una contraseña aleatoria legible, ej: "Xk29-Qp7m-Rt4v"
+function generarPasswordSegura(): string {
+  const bloque = () => randomBytes(3).toString("hex");
+  return `${bloque()}-${bloque()}-${bloque()}`;
+}
+
 async function main() {
-  const passwordHash = await bcrypt.hash("cambiar123", 10);
+  const passwordJefe = generarPasswordSegura();
+  const passwordAdmin = generarPasswordSegura();
+  const passwordTrabajador = generarPasswordSegura();
 
   const jefe = await prisma.usuario.upsert({
     where: { correo: "jefe@internetfibra.com" },
-    update: {},
+    update: { passwordHash: await bcrypt.hash(passwordJefe, 10) },
     create: {
-      nombre: "Jefe Principal",
+      nombre: "Jefe de Prueba",
       correo: "jefe@internetfibra.com",
-      passwordHash,
+      passwordHash: await bcrypt.hash(passwordJefe, 10),
       rol: "JEFE",
     },
   });
 
   const administrador = await prisma.usuario.upsert({
     where: { correo: "admin@internetfibra.com" },
-    update: {},
+    update: { passwordHash: await bcrypt.hash(passwordAdmin, 10) },
     create: {
       nombre: "Administrador de Prueba",
       correo: "admin@internetfibra.com",
-      passwordHash,
+      passwordHash: await bcrypt.hash(passwordAdmin, 10),
       rol: "ADMINISTRADOR",
       idSupervisor: jefe.idUsuario,
     },
   });
 
-  const trabajador = await prisma.usuario.upsert({
+  await prisma.usuario.upsert({
     where: { correo: "trabajador@internetfibra.com" },
-    update: {},
+    update: { passwordHash: await bcrypt.hash(passwordTrabajador, 10) },
     create: {
       nombre: "Trabajador de Prueba",
       correo: "trabajador@internetfibra.com",
-      passwordHash,
+      passwordHash: await bcrypt.hash(passwordTrabajador, 10),
       rol: "TRABAJADOR",
       idSupervisor: administrador.idUsuario,
     },
   });
 
-  // ---------------------------------------------------------
-  // EJEMPLO: simula que el trabajador y el administrador
-  // renovaron su contraseña, para comprobar que la notificación
-  // al supervisor funciona (revísalo en /perfil del jefe y del admin,
-  // o directamente en la tabla "notificacion" con Prisma Studio).
-  // ---------------------------------------------------------
-  const nuevoHashTrabajador = await bcrypt.hash("nuevaClave123", 10);
-  await prisma.usuario.update({
-    where: { idUsuario: trabajador.idUsuario },
-    data: { passwordHash: nuevoHashTrabajador },
-  });
-  await prisma.notificacion.create({
-    data: {
-      idUsuarioDestino: administrador.idUsuario,
-      mensaje: `${trabajador.nombre} (TRABAJADOR) actualizó su contraseña (ejemplo generado por el seed).`,
-    },
-  });
-
-  const nuevoHashAdmin = await bcrypt.hash("nuevaClave456", 10);
-  await prisma.usuario.update({
-    where: { idUsuario: administrador.idUsuario },
-    data: { passwordHash: nuevoHashAdmin },
-  });
-  await prisma.notificacion.create({
-    data: {
-      idUsuarioDestino: jefe.idUsuario,
-      mensaje: `${administrador.nombre} (ADMINISTRADOR) actualizó su contraseña (ejemplo generado por el seed).`,
-    },
-  });
-
-  console.log("Usuarios creados:");
-  console.log("- jefe@internetfibra.com          | contraseña: cambiar123");
+  console.log("========================================");
+  console.log("Usuarios de prueba listos. GUARDA estas contraseñas ahora,");
   console.log(
-    "- admin@internetfibra.com         | contraseña: nuevaClave456 (se cambió por el ejemplo)",
+    "no se te van a volver a mostrar (no quedan en texto plano en la BD):",
+  );
+  console.log("========================================");
+  console.log(
+    `Jefe          -> jefe@internetfibra.com        | ${passwordJefe}`,
   );
   console.log(
-    "- trabajador@internetfibra.com     | contraseña: nuevaClave123 (se cambió por el ejemplo)",
+    `Administrador -> admin@internetfibra.com       | ${passwordAdmin}`,
   );
-  console.log("");
   console.log(
-    "Revisa /perfil como jefe y como admin -> deberías ver la notificación del cambio.",
+    `Trabajador    -> trabajador@internetfibra.com  | ${passwordTrabajador}`,
   );
+  console.log("========================================");
 }
 
 main()
