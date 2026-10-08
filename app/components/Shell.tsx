@@ -7,18 +7,21 @@ const NAV_POR_ROL: Record<string, { href: string; label: string }[]> = {
     { href: "/jefe", label: "Panel" },
     { href: "/solicitudes", label: "Solicitudes" },
     { href: "/ubigeo/gestion", label: "Ubigeos" },
+    { href: "/ubigeo/mapa", label: "Mapa" },
     { href: "/perfil", label: "Perfil" },
   ],
   ADMINISTRADOR: [
     { href: "/administrador", label: "Panel" },
     { href: "/solicitudes", label: "Solicitudes" },
     { href: "/clientes/gestion", label: "Clientes" },
+    { href: "/ubigeo/mapa", label: "Mapa" },
     { href: "/perfil", label: "Perfil" },
   ],
   TRABAJADOR: [
     { href: "/trabajador", label: "Panel" },
     { href: "/clientes/nuevo", label: "Nuevo cliente" },
     { href: "/solicitudes", label: "Solicitudes" },
+    { href: "/ubigeo/mapa", label: "Mapa" },
     { href: "/perfil", label: "Perfil" },
   ],
 };

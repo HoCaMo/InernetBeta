@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import ClienteDetalle from "./ClienteDetalle";
 import InstalacionForm from "./InstalacionForm";
 import EditarClienteForm from "./EditarClienteForm";
+import MapaClientes from "@/app/ubigeo/mapa/MapaClientes";
 import Shell from "@/app/components/Shell";
 import Link from "next/link";
 import {
@@ -21,12 +22,24 @@ const estadoPagoBadge: Record<string, string> = {
 export default async function ClienteDetallePage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
   const session = await auth();
   if (!session) redirect("/login");
+
+  // En Next.js 15+ los params son una Promesa y hay que esperarlos
   const { id } = await params;
   const idCliente = Number(id);
+
+  if (Number.isNaN(idCliente)) {
+    return (
+      <Shell nombre={session.user.name ?? ""} rol={session.user.rol}>
+        <p className="text-slate-400">
+          El identificador del cliente no es válido.
+        </p>
+      </Shell>
+    );
+  }
 
   const cliente = await prisma.cliente.findUnique({
     where: { idCliente },
@@ -34,15 +47,9 @@ export default async function ClienteDetallePage({
       telefonos: true,
       documentos: true,
       ubigeo: true,
-      pagos: {
-        orderBy: { periodo: "asc" },
-      },
+      pagos: { orderBy: { periodo: "asc" } },
       asignadoA: {
-        select: {
-          idUsuario: true,
-          nombre: true,
-          idSupervisor: true,
-        },
+        select: { idUsuario: true, nombre: true, idSupervisor: true },
       },
     },
   });
@@ -157,6 +164,25 @@ export default async function ClienteDetallePage({
             .join(", ") || "—"}
         </p>
       </div>
+
+      {/* --- Ubicación exacta registrada en el mapa --- */}
+      {cliente.latitud && cliente.longitud && (
+        <section className="mt-6">
+          <h2 className="mb-3 text-sm font-mono uppercase tracking-wider text-amber-500">
+            Ubicación exacta
+          </h2>
+          <MapaClientes
+            marcadores={[
+              {
+                id: cliente.idCliente,
+                lat: Number(cliente.latitud),
+                lng: Number(cliente.longitud),
+                popup: `<strong>${cliente.nombre} ${cliente.apellido ?? ""}</strong><br/>${cliente.direccion ?? ""}`,
+              },
+            ]}
+          />
+        </section>
+      )}
 
       {/* --- Historial de pagos: días de pago y si pagó o no --- */}
       <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-6">

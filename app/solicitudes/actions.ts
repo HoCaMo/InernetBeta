@@ -125,6 +125,12 @@ export async function crearClienteConSolicitud(formData: FormData) {
     }
   }
 
+  const latitud = Number(formData.get("latitud"));
+  const longitud = Number(formData.get("longitud"));
+  if (Number.isNaN(latitud) || Number.isNaN(longitud)) {
+    throw new Error("Marca la ubicación exacta del cliente en el mapa");
+  }
+
   const ahora = new Date();
 
   await prisma.$transaction(async (tx) => {
@@ -145,6 +151,8 @@ export async function crearClienteConSolicitud(formData: FormData) {
         correo: (formData.get("correo") as string) || null,
         direccion: formData.get("domicilioInstalacion") as string,
         idUbigeo: ubigeo.idUbigeo,
+        latitud,
+        longitud,
         nacionalidad,
         representanteLegal:
           (formData.get("representanteLegal") as string) || null,
@@ -791,44 +799,13 @@ export async function crearSolicitudEditarTrabajador(
 
   const cambios: Record<string, string> = {};
   const nombre = (formData.get("nombre") as string)?.trim();
-  const correo = (formData.get("correo") as string)?.trim().toLowerCase();
-  const tipoDocumento = (formData.get("tipoDocumento") as string)?.trim();
-  const numeroDocumento = (formData.get("numeroDocumento") as string)?.trim();
   const telefono = (formData.get("telefono") as string)?.trim();
 
   if (nombre && nombre !== trabajador.nombre) cambios.nombre = nombre;
-  if (correo && correo !== trabajador.correo) cambios.correo = correo;
-  if (tipoDocumento && tipoDocumento !== trabajador.tipoDocumento)
-    cambios.tipoDocumento = tipoDocumento;
-  if (numeroDocumento && numeroDocumento !== trabajador.numeroDocumento)
-    cambios.numeroDocumento = numeroDocumento;
   if (telefono && telefono !== trabajador.telefono) cambios.telefono = telefono;
 
   if (Object.keys(cambios).length === 0) {
     throw new Error("No hiciste ningún cambio respecto a los datos actuales");
-  }
-
-  // Si cambia correo, documento o teléfono, verificar que no choque con otro usuario
-  if (cambios.correo) {
-    const existe = await prisma.usuario.findUnique({
-      where: { correo: cambios.correo },
-    });
-    if (existe && existe.idUsuario !== idTrabajador)
-      throw new Error("Ese correo ya pertenece a otro usuario");
-  }
-  if (cambios.numeroDocumento) {
-    const existe = await prisma.usuario.findUnique({
-      where: { numeroDocumento: cambios.numeroDocumento },
-    });
-    if (existe && existe.idUsuario !== idTrabajador)
-      throw new Error("Ese número de documento ya pertenece a otro usuario");
-  }
-  if (cambios.telefono) {
-    const existe = await prisma.usuario.findUnique({
-      where: { telefono: cambios.telefono },
-    });
-    if (existe && existe.idUsuario !== idTrabajador)
-      throw new Error("Ese número de celular ya pertenece a otro usuario");
   }
 
   await prisma.solicitud.create({

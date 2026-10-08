@@ -11,6 +11,7 @@ import {
   TIPO_INSTALACION_LABELS,
 } from "@/app/lib/constantes";
 import Combobox from "@/app/components/Combobox";
+import SelectorUbicacionMapa from "@/app/components/SelectorUbicacionMapa";
 
 type Ubigeo = {
   idUbigeo: number;
@@ -28,7 +29,7 @@ const sectionClass =
 const sectionTitle =
   "text-sm font-mono uppercase tracking-wider text-amber-500";
 
-const HORAS = Array.from({ length: 12 }, (_, i) => i + 1); // 1..12
+const HORAS = Array.from({ length: 12 }, (_, i) => i + 1);
 const MINUTOS = [
   "00",
   "05",
@@ -50,7 +51,6 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
   const [error, setError] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
 
-  // --- Documento (validación en vivo) ---
   const [tipoDocumento, setTipoDocumento] = useState("DNI");
   const [numeroDocumento, setNumeroDocumento] = useState("");
   const longitudEsperada = LONGITUD_DOCUMENTO[tipoDocumento];
@@ -58,7 +58,6 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
   const documentoValido = longitudActual === longitudEsperada;
   const documentoTocado = longitudActual > 0;
 
-  // --- Ubigeo en cascada con buscador ---
   const departamentos = useMemo(
     () => Array.from(new Set(ubigeos.map((u) => u.departamento))).sort(),
     [ubigeos],
@@ -92,16 +91,17 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
   );
   const [distrito, setDistrito] = useState("");
 
-  // --- Plan tarifario: precio en vivo ---
+  // --- Ubicación exacta en el mapa (obligatoria) ---
+  const [latitud, setLatitud] = useState<number | null>(null);
+  const [longitud, setLongitud] = useState<number | null>(null);
+
   const [planTarifario, setPlanTarifario] = useState("MBPS_200");
 
-  // --- Fecha y hora de instalación, separadas con AM/PM ---
   const [fechaInstalacion, setFechaInstalacion] = useState("");
   const [horaInstalacion, setHoraInstalacion] = useState("9");
   const [minutoInstalacion, setMinutoInstalacion] = useState("00");
   const [periodoInstalacion, setPeriodoInstalacion] = useState("AM");
 
-  // --- Costo de instalación ---
   const [tieneCostoInstalacion, setTieneCostoInstalacion] = useState("no");
 
   function handleSubmit(formData: FormData) {
@@ -114,13 +114,15 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
       return;
     }
     if (!departamento || !provincia || !distrito) {
-      setError(
-        "Selecciona departamento, provincia y distrito de la lista (haz clic en una opción).",
-      );
+      setError("Selecciona departamento, provincia y distrito de la lista.");
       return;
     }
     if (!fechaInstalacion) {
       setError("Selecciona la fecha de instalación.");
+      return;
+    }
+    if (latitud === null || longitud === null) {
+      setError("Marca la ubicación exacta del cliente en el mapa.");
       return;
     }
 
@@ -139,6 +141,8 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
         setMinutoInstalacion("00");
         setPeriodoInstalacion("AM");
         setTieneCostoInstalacion("no");
+        setLatitud(null);
+        setLongitud(null);
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Error al crear el cliente",
@@ -164,7 +168,10 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
       )}
 
       <form ref={formRef} action={handleSubmit} className="space-y-6">
-        {/* DATOS PERSONALES */}
+        {/* Campos ocultos con la ubicación exacta, para que viajen con el formulario */}
+        <input type="hidden" name="latitud" value={latitud ?? ""} />
+        <input type="hidden" name="longitud" value={longitud ?? ""} />
+
         <section className={sectionClass}>
           <h2 className={sectionTitle}>Datos del cliente</h2>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -214,13 +221,7 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
                 }`}
               />
               <p
-                className={`mt-1 text-xs ${
-                  !documentoTocado
-                    ? "text-slate-500"
-                    : documentoValido
-                      ? "text-emerald-400"
-                      : "text-red-400"
-                }`}
+                className={`mt-1 text-xs ${!documentoTocado ? "text-slate-500" : documentoValido ? "text-emerald-400" : "text-red-400"}`}
               >
                 {longitudActual}/{longitudEsperada} caracteres exactos para{" "}
                 {tipoDocumento}
@@ -306,6 +307,19 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
             </div>
           )}
 
+          {/* --- Selector de ubicación exacta en el mapa --- */}
+          <div>
+            <label className={labelClass}>Ubicación exacta en el mapa *</label>
+            <SelectorUbicacionMapa
+              latitud={latitud}
+              longitud={longitud}
+              onSeleccionar={(lat, lng) => {
+                setLatitud(lat);
+                setLongitud(lng);
+              }}
+            />
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className={labelClass}>N.° Celular / Fijo</label>
@@ -318,7 +332,6 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
           </div>
         </section>
 
-        {/* DATOS DEL SERVICIO */}
         <section className={sectionClass}>
           <h2 className={sectionTitle}>Datos del servicio</h2>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -404,7 +417,6 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
             </div>
           </div>
 
-          {/* --- Fecha y hora de instalación, separadas, con AM/PM --- */}
           <div>
             <label className={labelClass}>Fecha y hora de instalación *</label>
             <div className="grid gap-3 sm:grid-cols-[1.4fr_0.8fr_0.8fr_0.8fr]">
@@ -450,24 +462,9 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
                 <option value="PM">PM</option>
               </select>
             </div>
-            {fechaInstalacion && (
-              <p className="mt-1 text-xs text-slate-500">
-                Instalación programada:{" "}
-                {new Date(`${fechaInstalacion}T00:00:00`).toLocaleDateString(
-                  "es-PE",
-                  {
-                    day: "2-digit",
-                    month: "long",
-                    year: "numeric",
-                  },
-                )}{" "}
-                a las {horaInstalacion}:{minutoInstalacion} {periodoInstalacion}
-              </p>
-            )}
           </div>
         </section>
 
-        {/* DERECHO DE INSTALACIÓN */}
         <section className={sectionClass}>
           <h2 className={sectionTitle}>Derecho de instalación</h2>
           <div>
