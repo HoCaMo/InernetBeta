@@ -6,7 +6,6 @@ const NAV_POR_ROL: Record<string, { href: string; label: string }[]> = {
   JEFE: [
     { href: "/jefe", label: "Panel" },
     { href: "/solicitudes", label: "Solicitudes" },
-    { href: "/ubigeo/gestion", label: "Ubigeos" },
     { href: "/ubigeo/mapa", label: "Mapa" },
     { href: "/perfil", label: "Perfil" },
   ],

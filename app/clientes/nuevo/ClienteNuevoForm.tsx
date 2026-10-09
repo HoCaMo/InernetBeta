@@ -128,7 +128,11 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
 
     startTransition(async () => {
       try {
-        await crearClienteConSolicitud(formData);
+        const resultado = await crearClienteConSolicitud(formData);
+        if (!resultado.ok) {
+          setError(resultado.error);
+          return;
+        }
         setEnviado(true);
         formRef.current?.reset();
         setNumeroDocumento("");
