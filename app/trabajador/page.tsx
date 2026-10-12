@@ -3,6 +3,7 @@ import { prisma } from "@/app/lib/db";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Shell from "@/app/components/Shell";
+import { PLAN_LABELS } from "@/app/lib/constantes";
 
 const badgeColor: Record<string, string> = {
   PENDIENTE: "bg-amber-500/15 text-amber-400 border-amber-500/30",
@@ -17,7 +18,10 @@ export default async function TrabajadorPage() {
 
   const clientes = await prisma.cliente.findMany({
     where: { idAsignadoA: session.user.idUsuario },
-    include: { telefonos: { where: { principal: true }, take: 1 } },
+    include: {
+      telefonos: { where: { principal: true }, take: 1 },
+      servicios: { orderBy: { idServicio: "asc" } },
+    },
     orderBy: { fechaRegistro: "desc" },
   });
 
@@ -48,53 +52,62 @@ export default async function TrabajadorPage() {
               <tr className="text-left font-mono text-[11px] uppercase tracking-wider">
                 <th className="px-4 py-2.5">Nombre</th>
                 <th className="px-4 py-2.5">Teléfono</th>
+                <th className="px-4 py-2.5">Planes</th>
                 <th className="px-4 py-2.5">Instalación</th>
                 <th className="px-4 py-2.5">Derecho instal.</th>
                 <th className="px-4 py-2.5">Estado</th>
               </tr>
             </thead>
             <tbody>
-              {clientes.map((c) => (
-                <tr
-                  key={c.idCliente}
-                  className="border-t border-slate-800 text-slate-200"
-                >
-                  <td className="px-4 py-2.5">
-                    <Link
-                      href={`/clientes/${c.idCliente}`}
-                      className="text-amber-400 hover:underline"
-                    >
-                      {c.nombre} {c.apellido ?? ""}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-400">
-                    {c.telefonos[0]?.numero ?? "—"}
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-400">
-                    {c.fechaHoraInstalacion
-                      ? new Date(c.fechaHoraInstalacion).toLocaleDateString(
-                          "es-PE",
-                        )
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-400">
-                    {c.tieneCostoInstalacion
-                      ? `Sí (S/ ${Number(c.derechoInstalacion).toFixed(2)})`
-                      : "No"}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span
-                      className={`rounded-full border px-2.5 py-0.5 text-xs ${badgeColor[c.estadoAprobacion]}`}
-                    >
-                      {c.estadoAprobacion}
-                    </span>
-                  </td>
-                </tr>
-              ))}
+              {clientes.map((c) => {
+                const primero = c.servicios[0];
+                return (
+                  <tr
+                    key={c.idCliente}
+                    className="border-t border-slate-800 text-slate-200"
+                  >
+                    <td className="px-4 py-2.5">
+                      <Link
+                        href={`/clientes/${c.idCliente}`}
+                        className="text-amber-400 hover:underline"
+                      >
+                        {c.nombre} {c.apellido ?? ""}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-400">
+                      {c.telefonos[0]?.numero ?? "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-400">
+                      {c.servicios
+                        .map((s) => PLAN_LABELS[s.planTarifario])
+                        .join(" + ") || "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-400">
+                      {primero?.fechaHoraInstalacion
+                        ? new Date(
+                            primero.fechaHoraInstalacion,
+                          ).toLocaleDateString("es-PE")
+                        : "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-400">
+                      {primero?.tieneCostoInstalacion
+                        ? `Sí (S/ ${Number(primero.derechoInstalacion).toFixed(2)})`
+                        : "No"}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span
+                        className={`rounded-full border px-2.5 py-0.5 text-xs ${badgeColor[c.estadoAprobacion]}`}
+                      >
+                        {c.estadoAprobacion}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
               {clientes.length === 0 && (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className="px-4 py-6 text-center text-slate-500"
                   >
                     Aún no has generado clientes.

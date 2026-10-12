@@ -109,6 +109,7 @@ model Cliente {
   @@index([nombre])
   @@index([apellido])
   @@map("cliente")
+  servicios Servicio[]
 }
 
 model DocumentoCliente {
@@ -151,19 +152,6 @@ enum EstadoAprobacionCliente {
   RECHAZADO
 
   @@map("estado_aprobacion_cliente_enum")
-}
-
-enum TipoSolicitud {
-  CREACION_CLIENTE
-  EDICION_CLIENTE
-  ELIMINACION_CLIENTE
-  TRANSFERENCIA_CLIENTES
-  CREACION_TRABAJADOR
-  EDICION_TRABAJADOR
-  ELIMINACION_TRABAJADOR
-  CAMBIO_SUPERVISOR_TRABAJADOR
-
-  @@map("tipo_solicitud_enum")
 }
 
 enum EstadoSolicitud {
@@ -225,6 +213,8 @@ model Solicitud {
   idNuevoSupervisor      Int?   @map("id_nuevo_supervisor")
   idsClientesTransferir  Int[]  @map("ids_clientes_transferir")
 
+  idServicio Int? @map("id_servicio")
+
   @@index([estado])
   @@index([idSolicitante])
   @@map("solicitud")
@@ -265,11 +255,31 @@ model Pago {
   fechaPago        DateTime?  @map("fecha_pago") @db.Timestamptz
  
   estado           EstadoPago @default(PENDIENTE)
- 
-  @@unique([idCliente, periodo], name: "uq_pago_cliente_periodo")
+  
+  idServicio  Int?      @map("id_servicio")
+  servicio    Servicio? @relation(fields: [idServicio], references: [idServicio], onDelete: Cascade)
+  fechaCobro  DateTime? @map("fecha_cobro") @db.Timestamptz
+
   @@index([idCliente])
   @@index([estado])
   @@map("pago")
+  @@unique([idServicio, periodo], name: "uq_pago_servicio_periodo")
+  @@index([idServicio])
+}
+//-
+enum TipoSolicitud {
+  CREACION_CLIENTE
+  EDICION_CLIENTE
+  ELIMINACION_CLIENTE
+  CAMBIO_SERVICIO
+  NUEVO_SERVICIO
+  TRANSFERENCIA_CLIENTES
+  CREACION_TRABAJADOR
+  EDICION_TRABAJADOR
+  ELIMINACION_TRABAJADOR
+  CAMBIO_SUPERVISOR_TRABAJADOR
+ 
+  @@map("tipo_solicitud_enum")
 }
 //-
 enum Nacionalidad {
@@ -317,4 +327,31 @@ enum TipoInstalacion {
  
   @@map("tipo_instalacion_enum")
 }
-
+//-
+model Servicio {
+  idServicio               Int              @id @default(autoincrement()) @map("id_servicio")
+  idCliente                Int              @map("id_cliente")
+  cliente                  Cliente          @relation(fields: [idCliente], references: [idCliente], onDelete: Cascade)
+ 
+  planTarifario            PlanTarifario    @map("plan_tarifario")
+  precioMensual            Decimal          @map("precio_mensual") @db.Decimal(8, 2)
+  diaCobro                 Int              @default(1) @map("dia_cobro")
+  diaVencimiento           Int?             @map("dia_vencimiento") // null = penúltimo día del mes
+ 
+  fechaHoraInstalacion     DateTime?        @map("fecha_hora_instalacion") @db.Timestamptz
+  tipoAccion               TipoAccion?      @map("tipo_accion")
+  tipoInstalacion          TipoInstalacion? @map("tipo_instalacion")
+  tieneCostoInstalacion    Boolean          @default(false) @map("tiene_costo_instalacion")
+  derechoInstalacion       Decimal?         @map("derecho_instalacion") @db.Decimal(8, 2)
+ 
+  tieneServicioAdicional   Boolean          @default(false) @map("tiene_servicio_adicional")
+  servicioAdicionalDetalle String?          @map("servicio_adicional_detalle") @db.VarChar(200)
+  servicioAdicionalPrecio  Decimal?         @map("servicio_adicional_precio") @db.Decimal(8, 2)
+ 
+  fechaCreacion            DateTime         @default(now()) @map("fecha_creacion") @db.Timestamptz
+ 
+  pagos                    Pago[]
+ 
+  @@index([idCliente])
+  @@map("servicio")
+}

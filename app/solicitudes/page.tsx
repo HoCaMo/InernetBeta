@@ -15,16 +15,28 @@ export default async function SolicitudesPage() {
   let where: Prisma.SolicitudWhereInput = {};
 
   if (rol === "JEFE") {
-    where = {};
+    where = {}; // ve todo (auditoría completa)
   } else if (rol === "ADMINISTRADOR") {
     where = {
       OR: [
-        { tipo: { in: ["CREACION_CLIENTE", "EDICION_CLIENTE"] } },
-        { idSolicitante: idUsuario },
+        { idSolicitante: idUsuario }, // las suyas
+        {
+          // las de los trabajadores que supervisa, para resolverlas
+          tipo: {
+            in: [
+              "CREACION_CLIENTE",
+              "EDICION_CLIENTE",
+              "ELIMINACION_CLIENTE",
+              "CAMBIO_SERVICIO",
+              "NUEVO_SERVICIO",
+            ],
+          },
+          solicitante: { idSupervisor: idUsuario },
+        },
       ],
     };
   } else {
-    where = { idSolicitante: idUsuario };
+    where = { idSolicitante: idUsuario }; // el trabajador ve el resultado de las suyas
   }
 
   const solicitudes = await prisma.solicitud.findMany({

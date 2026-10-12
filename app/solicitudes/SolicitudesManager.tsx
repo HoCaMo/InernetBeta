@@ -1,8 +1,10 @@
 "use client";
 
 import { useTransition, useState } from "react";
+import { PLAN_LABELS } from "@/app/lib/constantes";
 import {
   resolverSolicitudCliente,
+  resolverSolicitudServicio,
   resolverSolicitudTransferencia,
   resolverSolicitudTrabajador,
   resolverSolicitudTrabajadorGestion,
@@ -30,6 +32,8 @@ const tipoLabel: Record<string, string> = {
   CREACION_CLIENTE: "Nuevo cliente",
   EDICION_CLIENTE: "Editar cliente",
   ELIMINACION_CLIENTE: "Eliminar cliente",
+  CAMBIO_SERVICIO: "Cambiar plan / precio / fechas de pago",
+  NUEVO_SERVICIO: "Agregar otro plan",
   TRANSFERENCIA_CLIENTES: "Transferencia de clientes",
   CREACION_TRABAJADOR: "Nuevo trabajador",
   EDICION_TRABAJADOR: "Editar trabajador",
@@ -46,14 +50,59 @@ const SOLO_JEFE = new Set([
   "CAMBIO_SUPERVISOR_TRABAJADOR",
 ]);
 
+const dinero = (v: unknown) => `S/ ${Number(v).toFixed(2)}`;
+
 function resumenPropuesta(s: SolicitudConRelaciones): string | null {
-  if (s.tipo === "EDICION_CLIENTE" || s.tipo === "EDICION_TRABAJADOR") {
-    const datos = s.datosPropuestos as Record<string, string> | null;
-    if (!datos) return null;
+  const datos = s.datosPropuestos as Record<string, unknown> | null;
+
+  if (
+    (s.tipo === "EDICION_CLIENTE" || s.tipo === "EDICION_TRABAJADOR") &&
+    datos
+  ) {
     return Object.entries(datos)
       .map(([k, v]) => `${k}: ${v}`)
       .join(" · ");
   }
+
+  if (s.tipo === "CAMBIO_SERVICIO" && datos) {
+    const partes: string[] = [];
+    if (typeof datos.planTarifario === "string")
+      partes.push(
+        `Plan → ${PLAN_LABELS[datos.planTarifario] ?? datos.planTarifario}`,
+      );
+    if (typeof datos.precioMensual === "number")
+      partes.push(`Precio → ${dinero(datos.precioMensual)}`);
+    if (typeof datos.diaCobro === "number")
+      partes.push(`Cobro → día ${datos.diaCobro}`);
+    if ("diaVencimiento" in datos) {
+      partes.push(
+        datos.diaVencimiento == null
+          ? "Vence → penúltimo día"
+          : `Vence → día ${datos.diaVencimiento}`,
+      );
+    }
+    return partes.join(" · ");
+  }
+
+  if (s.tipo === "NUEVO_SERVICIO" && datos) {
+    const partes: string[] = [];
+    if (typeof datos.planTarifario === "string")
+      partes.push(
+        `Plan ${PLAN_LABELS[datos.planTarifario] ?? datos.planTarifario}`,
+      );
+    if (datos.fechaHoraInstalacion)
+      partes.push(
+        `Instalación ${new Date(String(datos.fechaHoraInstalacion)).toLocaleString("es-PE")}`,
+      );
+    if (datos.tieneCostoInstalacion)
+      partes.push(`Derecho ${dinero(datos.derechoInstalacion)}`);
+    if (datos.tieneServicioAdicional)
+      partes.push(
+        `Adicional: ${datos.servicioAdicionalDetalle} (${dinero(datos.servicioAdicionalPrecio)})`,
+      );
+    return partes.join(" · ");
+  }
+
   return s.comentario;
 }
 
@@ -70,6 +119,8 @@ export default function SolicitudesManager({
   function puedeResolver(s: SolicitudConRelaciones) {
     if (s.estado !== "PENDIENTE") return false;
     if (SOLO_JEFE.has(s.tipo)) return rolActual === "JEFE";
+    // Lo pedido por un administrador solo lo resuelve el jefe (nadie se auto-aprueba)
+    if (s.solicitante.rol === "ADMINISTRADOR") return rolActual === "JEFE";
     return rolActual === "ADMINISTRADOR" || rolActual === "JEFE";
   }
 
@@ -80,23 +131,30 @@ export default function SolicitudesManager({
     setErrorMsg(null);
     startTransition(async () => {
       try {
+        let res: { ok: boolean; error?: string };
         if (
           s.tipo === "CREACION_CLIENTE" ||
           s.tipo === "EDICION_CLIENTE" ||
           s.tipo === "ELIMINACION_CLIENTE"
         ) {
-          await resolverSolicitudCliente(s.idSolicitud, decision);
-        } else if (s.tipo === "TRANSFERENCIA_CLIENTES") {
-          await resolverSolicitudTransferencia(s.idSolicitud, decision);
-        } else if (s.tipo === "CREACION_TRABAJADOR") {
-          await resolverSolicitudTrabajador(s.idSolicitud, decision);
+          res = await resolverSolicitudCliente(s.idSolicitud, decision);
         } else if (
-          s.tipo === "EDICION_TRABAJADOR" ||
-          s.tipo === "ELIMINACION_TRABAJADOR" ||
-          s.tipo === "CAMBIO_SUPERVISOR_TRABAJADOR"
+          s.tipo === "CAMBIO_SERVICIO" ||
+          s.tipo === "NUEVO_SERVICIO"
         ) {
-          await resolverSolicitudTrabajadorGestion(s.idSolicitud, decision);
+          res = await resolverSolicitudServicio(s.idSolicitud, decision);
+        } else if (s.tipo === "TRANSFERENCIA_CLIENTES") {
+          res = await resolverSolicitudTransferencia(s.idSolicitud, decision);
+        } else if (s.tipo === "CREACION_TRABAJADOR") {
+          res = await resolverSolicitudTrabajador(s.idSolicitud, decision);
+        } else {
+          res = await resolverSolicitudTrabajadorGestion(
+            s.idSolicitud,
+            decision,
+          );
         }
+        if (!res.ok)
+          setErrorMsg(res.error ?? "No se pudo resolver la solicitud");
       } catch (err) {
         setErrorMsg(
           err instanceof Error ? err.message : "Error al resolver la solicitud",
@@ -112,7 +170,7 @@ export default function SolicitudesManager({
           {errorMsg}
         </p>
       )}
-      <div className="overflow-hidden rounded-xl border border-slate-800">
+      <div className="overflow-x-auto rounded-xl border border-slate-800">
         <table className="w-full text-sm">
           <thead className="bg-slate-900 text-slate-500">
             <tr className="text-left font-mono text-[11px] uppercase tracking-wider">
@@ -125,55 +183,67 @@ export default function SolicitudesManager({
             </tr>
           </thead>
           <tbody>
-            {solicitudes.map((s) => (
-              <tr
-                key={s.idSolicitud}
-                className="border-t border-slate-800 text-slate-200"
-              >
-                <td className="px-4 py-2.5">{tipoLabel[s.tipo] ?? s.tipo}</td>
-                <td className="max-w-xs px-4 py-2.5 text-slate-400">
-                  {s.cliente
-                    ? `${s.cliente.nombre} ${s.cliente.apellido ?? ""}`
-                    : (resumenPropuesta(s) ?? "—")}
-                </td>
-                <td className="px-4 py-2.5 text-slate-400">
-                  {s.solicitante.nombre}{" "}
-                  <span className="text-slate-600">({s.solicitante.rol})</span>
-                </td>
-                <td className="px-4 py-2.5">
-                  <span
-                    className={`rounded-full border px-2.5 py-0.5 text-xs ${estadoBadge[s.estado]}`}
-                  >
-                    {s.estado}
-                  </span>
-                </td>
-                <td className="px-4 py-2.5 text-slate-400">
-                  {s.resolutor?.nombre ?? "—"}
-                </td>
-                <td className="px-4 py-2.5">
-                  {puedeResolver(s) ? (
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => resolver(s, "ACEPTADA")}
-                        disabled={isPending}
-                        className="rounded-lg bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-400 transition hover:bg-emerald-500/25 disabled:opacity-50"
-                      >
-                        Aceptar
-                      </button>
-                      <button
-                        onClick={() => resolver(s, "RECHAZADA")}
-                        disabled={isPending}
-                        className="rounded-lg bg-red-500/15 px-2.5 py-1 text-xs font-medium text-red-400 transition hover:bg-red-500/25 disabled:opacity-50"
-                      >
-                        Rechazar
-                      </button>
+            {solicitudes.map((s) => {
+              const resumen = resumenPropuesta(s);
+              return (
+                <tr
+                  key={s.idSolicitud}
+                  className="border-t border-slate-800 align-top text-slate-200"
+                >
+                  <td className="px-4 py-2.5">{tipoLabel[s.tipo] ?? s.tipo}</td>
+                  <td className="max-w-sm px-4 py-2.5">
+                    <div className="text-slate-300">
+                      {s.cliente
+                        ? `${s.cliente.nombre} ${s.cliente.apellido ?? ""}`
+                        : "—"}
                     </div>
-                  ) : (
-                    <span className="text-slate-600">—</span>
-                  )}
-                </td>
-              </tr>
-            ))}
+                    {resumen && (
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        {resumen}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-400">
+                    {s.solicitante.nombre}{" "}
+                    <span className="text-slate-600">
+                      ({s.solicitante.rol})
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span
+                      className={`rounded-full border px-2.5 py-0.5 text-xs ${estadoBadge[s.estado]}`}
+                    >
+                      {s.estado}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-slate-400">
+                    {s.resolutor?.nombre ?? "—"}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {puedeResolver(s) ? (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => resolver(s, "ACEPTADA")}
+                          disabled={isPending}
+                          className="rounded-lg bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-400 transition hover:bg-emerald-500/25 disabled:opacity-50"
+                        >
+                          Aceptar
+                        </button>
+                        <button
+                          onClick={() => resolver(s, "RECHAZADA")}
+                          disabled={isPending}
+                          className="rounded-lg bg-red-500/15 px-2.5 py-1 text-xs font-medium text-red-400 transition hover:bg-red-500/25 disabled:opacity-50"
+                        >
+                          Rechazar
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-slate-600">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
             {solicitudes.length === 0 && (
               <tr>
                 <td

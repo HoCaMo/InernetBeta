@@ -3,15 +3,10 @@
 import { useTransition, useState, useRef, useMemo } from "react";
 import Link from "next/link";
 import { crearClienteConSolicitud } from "@/app/solicitudes/actions";
-import {
-  PLAN_LABELS,
-  PLAN_PRECIOS,
-  LONGITUD_DOCUMENTO,
-  TIPO_ACCION_LABELS,
-  TIPO_INSTALACION_LABELS,
-} from "@/app/lib/constantes";
+import { LONGITUD_DOCUMENTO } from "@/app/lib/constantes";
 import Combobox from "@/app/components/Combobox";
 import SelectorUbicacionMapa from "@/app/components/SelectorUbicacionMapa";
+import CamposServicio from "@/app/components/CamposServicio";
 
 type Ubigeo = {
   idUbigeo: number;
@@ -29,26 +24,11 @@ const sectionClass =
 const sectionTitle =
   "text-sm font-mono uppercase tracking-wider text-amber-500";
 
-const HORAS = Array.from({ length: 12 }, (_, i) => i + 1);
-const MINUTOS = [
-  "00",
-  "05",
-  "10",
-  "15",
-  "20",
-  "25",
-  "30",
-  "35",
-  "40",
-  "45",
-  "50",
-  "55",
-];
-
 export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
   const [isPending, startTransition] = useTransition();
   const [enviado, setEnviado] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reinicio, setReinicio] = useState(0);
   const formRef = useRef<HTMLFormElement>(null);
 
   const [tipoDocumento, setTipoDocumento] = useState("DNI");
@@ -91,18 +71,8 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
   );
   const [distrito, setDistrito] = useState("");
 
-  // --- Ubicación exacta en el mapa (obligatoria) ---
   const [latitud, setLatitud] = useState<number | null>(null);
   const [longitud, setLongitud] = useState<number | null>(null);
-
-  const [planTarifario, setPlanTarifario] = useState("MBPS_200");
-
-  const [fechaInstalacion, setFechaInstalacion] = useState("");
-  const [horaInstalacion, setHoraInstalacion] = useState("9");
-  const [minutoInstalacion, setMinutoInstalacion] = useState("00");
-  const [periodoInstalacion, setPeriodoInstalacion] = useState("AM");
-
-  const [tieneCostoInstalacion, setTieneCostoInstalacion] = useState("no");
 
   function handleSubmit(formData: FormData) {
     setError(null);
@@ -115,10 +85,6 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
     }
     if (!departamento || !provincia || !distrito) {
       setError("Selecciona departamento, provincia y distrito de la lista.");
-      return;
-    }
-    if (!fechaInstalacion) {
-      setError("Selecciona la fecha de instalación.");
       return;
     }
     if (latitud === null || longitud === null) {
@@ -140,13 +106,9 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
         setDepartamento("");
         setProvincia("");
         setDistrito("");
-        setFechaInstalacion("");
-        setHoraInstalacion("9");
-        setMinutoInstalacion("00");
-        setPeriodoInstalacion("AM");
-        setTieneCostoInstalacion("no");
         setLatitud(null);
         setLongitud(null);
+        setReinicio((r) => r + 1); // reinicia los campos del plan
       } catch (err) {
         setError(
           err instanceof Error ? err.message : "Error al crear el cliente",
@@ -172,7 +134,6 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
       )}
 
       <form ref={formRef} action={handleSubmit} className="space-y-6">
-        {/* Campos ocultos con la ubicación exacta, para que viajen con el formulario */}
         <input type="hidden" name="latitud" value={latitud ?? ""} />
         <input type="hidden" name="longitud" value={longitud ?? ""} />
 
@@ -311,7 +272,6 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
             </div>
           )}
 
-          {/* --- Selector de ubicación exacta en el mapa --- */}
           <div>
             <label className={labelClass}>Ubicación exacta en el mapa *</label>
             <SelectorUbicacionMapa
@@ -365,140 +325,15 @@ export default function ClienteNuevoForm({ ubigeos }: { ubigeos: Ubigeo[] }) {
               </select>
             </div>
           </div>
-
-          <div>
-            <label className={labelClass}>Plan tarifario *</label>
-            <select
-              name="planTarifario"
-              required
-              value={planTarifario}
-              onChange={(e) => setPlanTarifario(e.target.value)}
-              className={inputClass}
-            >
-              {Object.entries(PLAN_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-sm font-medium text-amber-400">
-              Pago mensual: S/ {PLAN_PRECIOS[planTarifario].toFixed(2)}
-            </p>
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className={labelClass}>Tipo de acción *</label>
-              <select
-                name="tipoAccion"
-                required
-                defaultValue="INSTALACION_NUEVA"
-                className={inputClass}
-              >
-                {Object.entries(TIPO_ACCION_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className={labelClass}>Fijo / No fijo *</label>
-              <select
-                name="tipoInstalacion"
-                required
-                defaultValue="FIJO"
-                className={inputClass}
-              >
-                {Object.entries(TIPO_INSTALACION_LABELS).map(
-                  ([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ),
-                )}
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className={labelClass}>Fecha y hora de instalación *</label>
-            <div className="grid gap-3 sm:grid-cols-[1.4fr_0.8fr_0.8fr_0.8fr]">
-              <input
-                name="fechaInstalacion"
-                type="date"
-                required
-                value={fechaInstalacion}
-                onChange={(e) => setFechaInstalacion(e.target.value)}
-                className={inputClass}
-              />
-              <select
-                name="horaInstalacion"
-                value={horaInstalacion}
-                onChange={(e) => setHoraInstalacion(e.target.value)}
-                className={inputClass}
-              >
-                {HORAS.map((h) => (
-                  <option key={h} value={h}>
-                    {h}
-                  </option>
-                ))}
-              </select>
-              <select
-                name="minutoInstalacion"
-                value={minutoInstalacion}
-                onChange={(e) => setMinutoInstalacion(e.target.value)}
-                className={inputClass}
-              >
-                {MINUTOS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-              <select
-                name="periodoInstalacion"
-                value={periodoInstalacion}
-                onChange={(e) => setPeriodoInstalacion(e.target.value)}
-                className={inputClass}
-              >
-                <option value="AM">AM</option>
-                <option value="PM">PM</option>
-              </select>
-            </div>
-          </div>
         </section>
 
         <section className={sectionClass}>
-          <h2 className={sectionTitle}>Derecho de instalación</h2>
-          <div>
-            <label className={labelClass}>
-              ¿Se cobrará derecho de instalación?
-            </label>
-            <select
-              name="tieneCostoInstalacion"
-              value={tieneCostoInstalacion}
-              onChange={(e) => setTieneCostoInstalacion(e.target.value)}
-              className={inputClass}
-            >
-              <option value="no">No</option>
-              <option value="si">Sí</option>
-            </select>
-          </div>
-          {tieneCostoInstalacion === "si" && (
-            <div>
-              <label className={labelClass}>Monto (S/) *</label>
-              <input
-                name="derechoInstalacion"
-                type="number"
-                min="0"
-                step="0.01"
-                required
-                placeholder="200.00"
-                className={inputClass}
-              />
-            </div>
-          )}
+          <h2 className={sectionTitle}>Plan de internet e instalación</h2>
+          <CamposServicio key={reinicio} />
+          <p className="text-xs text-slate-500">
+            Si el cliente necesita más planes, se agregan desde su ficha una vez
+            aprobado.
+          </p>
         </section>
 
         <button

@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import ClienteDetalle from "./ClienteDetalle";
 import InstalacionForm from "./InstalacionForm";
 import EditarClienteForm from "./EditarClienteForm";
+import CambiarServicioForm from "./CambiarServicioForm";
+import NuevoServicioForm from "./NuevoServicioForm";
 import MapaClientes from "@/app/ubigeo/mapa/MapaClientes";
 import Shell from "@/app/components/Shell";
 import Link from "next/link";
@@ -19,6 +21,10 @@ const estadoPagoBadge: Record<string, string> = {
   VENCIDO: "bg-red-500/15 text-red-400 border-red-500/30",
 };
 
+const fecha = (d: Date | null) =>
+  d ? new Date(d).toLocaleDateString("es-PE") : "—";
+const dinero = (v: unknown) => `S/ ${Number(v).toFixed(2)}`;
+
 export default async function ClienteDetallePage({
   params,
 }: {
@@ -27,7 +33,6 @@ export default async function ClienteDetallePage({
   const session = await auth();
   if (!session) redirect("/login");
 
-  // En Next.js 15+ los params son una Promesa y hay que esperarlos
   const { id } = await params;
   const idCliente = Number(id);
 
@@ -47,7 +52,10 @@ export default async function ClienteDetallePage({
       telefonos: true,
       documentos: true,
       ubigeo: true,
-      pagos: { orderBy: { periodo: "asc" } },
+      servicios: {
+        orderBy: { idServicio: "asc" },
+        include: { pagos: { orderBy: { periodo: "asc" } } },
+      },
       asignadoA: {
         select: { idUsuario: true, nombre: true, idSupervisor: true },
       },
@@ -62,7 +70,6 @@ export default async function ClienteDetallePage({
     );
   }
 
-  // Quién puede ver/editar este cliente:
   const esTrabajadorDueño =
     session.user.rol === "TRABAJADOR" &&
     cliente.idAsignadoA === session.user.idUsuario;
@@ -82,6 +89,8 @@ export default async function ClienteDetallePage({
   const puedeCompletarInstalacion =
     session.user.rol === "ADMINISTRADOR" || session.user.rol === "JEFE";
   const puedeSolicitarEdicion = esTrabajadorDueño || esAdministradorSupervisor;
+  const puedeSolicitarPlanes =
+    puedeSolicitarEdicion && cliente.estadoAprobacion === "ACEPTADO";
 
   return (
     <Shell nombre={session.user.name ?? ""} rol={session.user.rol}>
@@ -115,44 +124,12 @@ export default async function ClienteDetallePage({
         <p>Uso del servicio: {cliente.usoServicio ?? "—"}</p>
         <p>Condición: {cliente.condicionCliente ?? "—"}</p>
         <p>
-          Tipo de acción:{" "}
-          {cliente.tipoAccion ? TIPO_ACCION_LABELS[cliente.tipoAccion] : "—"}
-        </p>
-        <p>
-          Fijo / No fijo:{" "}
-          {cliente.tipoInstalacion
-            ? TIPO_INSTALACION_LABELS[cliente.tipoInstalacion]
-            : "—"}
-        </p>
-        <p>
-          Fecha y hora de instalación:{" "}
-          {cliente.fechaHoraInstalacion
-            ? new Date(cliente.fechaHoraInstalacion).toLocaleString("es-PE")
-            : "—"}
-        </p>
-        <p>
-          Plan:{" "}
-          {cliente.planTarifario ? PLAN_LABELS[cliente.planTarifario] : "—"}
-        </p>
-        <p>
-          Pago mensual:{" "}
-          {cliente.pagoMensual
-            ? `S/ ${Number(cliente.pagoMensual).toFixed(2)}`
-            : "—"}
-        </p>
-        <p>
           Activo:{" "}
           {cliente.activo === null
             ? "Sin definir"
             : cliente.activo
               ? "Sí"
               : "No"}
-        </p>
-        <p>
-          Derecho de instalación (¿se aplicó?):{" "}
-          {cliente.tieneCostoInstalacion
-            ? `Sí — S/ ${Number(cliente.derechoInstalacion).toFixed(2)}`
-            : "No"}
         </p>
         <p>
           Teléfonos: {cliente.telefonos.map((t) => t.numero).join(", ") || "—"}
@@ -165,7 +142,6 @@ export default async function ClienteDetallePage({
         </p>
       </div>
 
-      {/* --- Ubicación exacta registrada en el mapa --- */}
       {cliente.latitud && cliente.longitud && (
         <section className="mt-6">
           <h2 className="mb-3 text-sm font-mono uppercase tracking-wider text-amber-500">
@@ -184,72 +160,143 @@ export default async function ClienteDetallePage({
         </section>
       )}
 
-      {/* --- Historial de pagos: días de pago y si pagó o no --- */}
-      <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-6">
-        <h2 className="mb-4 text-sm font-mono uppercase tracking-wider text-amber-500">
-          Historial de pagos
-        </h2>
-        {cliente.pagos.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            Aún no hay recibos generados (se crean al aceptar la solicitud del
-            cliente).
-          </p>
-        ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-800">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-900 text-slate-500">
-                <tr className="text-left font-mono text-[11px] uppercase tracking-wider">
-                  <th className="px-4 py-2.5">Periodo</th>
-                  <th className="px-4 py-2.5">Concepto</th>
-                  <th className="px-4 py-2.5">Monto</th>
-                  <th className="px-4 py-2.5">Descuento</th>
-                  <th className="px-4 py-2.5">Total</th>
-                  <th className="px-4 py-2.5">Vence</th>
-                  <th className="px-4 py-2.5">Pagado el</th>
-                  <th className="px-4 py-2.5">Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {cliente.pagos.map((p) => (
-                  <tr
-                    key={p.idPago}
-                    className="border-t border-slate-800 text-slate-200"
-                  >
-                    <td className="px-4 py-2.5">{p.periodo}</td>
-                    <td className="px-4 py-2.5 text-slate-400">{p.concepto}</td>
-                    <td className="px-4 py-2.5">
-                      S/ {Number(p.monto).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-400">
-                      {Number(p.descuento) > 0
-                        ? `-S/ ${Number(p.descuento).toFixed(2)}`
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-2.5 font-medium">
-                      S/ {Number(p.montoFinal).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-400">
-                      {new Date(p.fechaVencimiento).toLocaleDateString("es-PE")}
-                    </td>
-                    <td className="px-4 py-2.5 text-slate-400">
-                      {p.fechaPago
-                        ? new Date(p.fechaPago).toLocaleDateString("es-PE")
-                        : "—"}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span
-                        className={`rounded-full border px-2.5 py-0.5 text-xs ${estadoPagoBadge[p.estado]}`}
-                      >
-                        {p.estado}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {/* --- Un bloque por cada plan de internet del cliente --- */}
+      {cliente.servicios.length === 0 && (
+        <p className="mt-6 text-sm text-slate-500">
+          Este cliente aún no tiene planes registrados.
+        </p>
+      )}
+
+      {cliente.servicios.map((s, i) => (
+        <section
+          key={s.idServicio}
+          className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-6"
+        >
+          <h2 className="text-sm font-mono uppercase tracking-wider text-amber-500">
+            Plan {i + 1}: {PLAN_LABELS[s.planTarifario]} —{" "}
+            {dinero(s.precioMensual)}/mes
+          </h2>
+
+          <div className="mt-3 grid gap-x-8 gap-y-1 text-sm text-slate-400 sm:grid-cols-2">
+            <p>Día de cobro: {s.diaCobro} de cada mes</p>
+            <p>
+              Vence:{" "}
+              {s.diaVencimiento
+                ? `día ${s.diaVencimiento}`
+                : "penúltimo día del mes"}
+            </p>
+            <p>
+              Instalación:{" "}
+              {s.fechaHoraInstalacion
+                ? new Date(s.fechaHoraInstalacion).toLocaleString("es-PE")
+                : "—"}
+            </p>
+            <p>
+              Tipo de acción:{" "}
+              {s.tipoAccion ? TIPO_ACCION_LABELS[s.tipoAccion] : "—"}
+            </p>
+            <p>
+              Fijo / No fijo:{" "}
+              {s.tipoInstalacion
+                ? TIPO_INSTALACION_LABELS[s.tipoInstalacion]
+                : "—"}
+            </p>
+            <p>
+              Derecho de instalación:{" "}
+              {s.tieneCostoInstalacion
+                ? `Sí — ${dinero(s.derechoInstalacion)}`
+                : "No"}
+            </p>
+            <p className="sm:col-span-2">
+              Servicio adicional:{" "}
+              {s.tieneServicioAdicional
+                ? `${s.servicioAdicionalDetalle} — ${dinero(s.servicioAdicionalPrecio)}`
+                : "No"}
+            </p>
           </div>
-        )}
-      </section>
+
+          <h3 className="mb-2 mt-5 text-xs font-mono uppercase tracking-wider text-slate-500">
+            Historial de pagos
+          </h3>
+          {s.pagos.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              Aún no hay recibos (se crean al aceptar la solicitud).
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-800">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-900 text-slate-500">
+                  <tr className="text-left font-mono text-[11px] uppercase tracking-wider">
+                    <th className="px-3 py-2.5">Periodo</th>
+                    <th className="px-3 py-2.5">Concepto</th>
+                    <th className="px-3 py-2.5">Cobro</th>
+                    <th className="px-3 py-2.5">Vence</th>
+                    <th className="px-3 py-2.5">Monto</th>
+                    <th className="px-3 py-2.5">Desc.</th>
+                    <th className="px-3 py-2.5">Total</th>
+                    <th className="px-3 py-2.5">Pagado el</th>
+                    <th className="px-3 py-2.5">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.pagos.map((p) => (
+                    <tr
+                      key={p.idPago}
+                      className="border-t border-slate-800 text-slate-200"
+                    >
+                      <td className="px-3 py-2.5">{p.periodo}</td>
+                      <td className="px-3 py-2.5 text-slate-400">
+                        {p.concepto}
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-400">
+                        {fecha(p.fechaCobro)}
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-400">
+                        {fecha(p.fechaVencimiento)}
+                      </td>
+                      <td className="px-3 py-2.5">{dinero(p.monto)}</td>
+                      <td className="px-3 py-2.5 text-slate-400">
+                        {Number(p.descuento) > 0
+                          ? `-${dinero(p.descuento)}`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 font-medium">
+                        {dinero(p.montoFinal)}
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-400">
+                        {fecha(p.fechaPago)}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span
+                          className={`rounded-full border px-2.5 py-0.5 text-xs ${estadoPagoBadge[p.estado]}`}
+                        >
+                          {p.estado}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {puedeSolicitarPlanes && (
+            <CambiarServicioForm
+              servicio={{
+                idServicio: s.idServicio,
+                planTarifario: s.planTarifario,
+                precioMensual: Number(s.precioMensual),
+                diaCobro: s.diaCobro,
+                diaVencimiento: s.diaVencimiento,
+              }}
+            />
+          )}
+        </section>
+      ))}
+
+      {puedeSolicitarPlanes && (
+        <NuevoServicioForm idCliente={cliente.idCliente} />
+      )}
 
       <div className="mt-6 grid gap-6 md:grid-cols-2">
         {puedeCompletarInstalacion && (

@@ -1,83 +1,9 @@
-// Utilidades de facturación para el ciclo de pagos de un cliente.
-// Reglas de negocio:
-// - El primer mes (instalación) se paga completo por adelantado, junto con el derecho de instalación.
-// - El segundo mes recibe un descuento prorrateado por los días del primer mes que no se usaron
-//   (los días antes de la fecha de instalación dentro de ese mes).
-// - El cobro de cada mes corresponde al día 1; vence el penúltimo día de ese mes.
+// Utilidades de facturación por plan (servicio) de un cliente.
+// Reglas:
+// - El primer recibo cobra por adelantado: instalación (si aplica) + mes completo + servicio adicional (si aplica).
+// - El segundo mes lleva un descuento prorrateado por los días del primer mes anteriores a la instalación.
+// - Cada plan tiene su día de cobro (por defecto 1) y su día de vencimiento (por defecto, el penúltimo del mes).
 // - El recibo del mes siguiente se emite el día 20 del mes anterior.
-
-export function diasDelMes(anio: number, mesIndiceCero: number): number {
-  // Día 0 del mes siguiente = último día del mes actual
-  return new Date(anio, mesIndiceCero + 1, 0).getDate();
-}
-
-export function penultimoDiaDeMes(anio: number, mesIndiceCero: number): Date {
-  const totalDias = diasDelMes(anio, mesIndiceCero);
-  return new Date(anio, mesIndiceCero, totalDias - 1, 23, 59, 59);
-}
-
-export function periodoTexto(anio: number, mesIndiceCero: number): string {
-  return `${anio}-${String(mesIndiceCero + 1).padStart(2, "0")}`;
-}
-
-export function mesSiguiente(
-  anio: number,
-  mesIndiceCero: number,
-): { anio: number; mes: number } {
-  if (mesIndiceCero === 11) return { anio: anio + 1, mes: 0 };
-  return { anio, mes: mesIndiceCero + 1 };
-}
-
-/**
- * Calcula los montos del primer y segundo recibo a partir de la fecha de instalación.
- */
-export function calcularFacturacionInicial(
-  fechaHoraInstalacion: Date,
-  pagoMensual: number,
-  derechoInstalacion: number,
-) {
-  const anio = fechaHoraInstalacion.getFullYear();
-  const mes = fechaHoraInstalacion.getMonth(); // 0-indexado
-  const diaInstalacion = fechaHoraInstalacion.getDate();
-
-  const totalDiasMes1 = diasDelMes(anio, mes);
-  const diasNoUsadosMes1 = diaInstalacion - 1; // días antes de la instalación, no se usó el servicio
-
-  // --- Recibo 1: instalación + mes completo, pagado de inmediato ---
-  const recibo1 = {
-    periodo: periodoTexto(anio, mes),
-    concepto: `Instalación + mensualidad de ${nombreMes(mes)}`,
-    monto: pagoMensual,
-    descuento: 0,
-    montoFinal: pagoMensual + derechoInstalacion,
-    fechaEmision: fechaHoraInstalacion,
-    fechaVencimiento: penultimoDiaDeMes(anio, mes),
-    fechaPago: fechaHoraInstalacion, // se paga en el momento, por adelantado
-    estado: "PAGADO" as const,
-  };
-
-  // --- Recibo 2: mes siguiente, con descuento prorrateado por días no usados del mes 1 ---
-  const { anio: anio2, mes: mes2 } = mesSiguiente(anio, mes);
-  const descuentoProrrateo = Number(
-    ((pagoMensual / totalDiasMes1) * diasNoUsadosMes1).toFixed(2),
-  );
-
-  const fechaEmisionRecibo2 = new Date(anio, mes, 20); // día 20 del mes 1
-
-  const recibo2 = {
-    periodo: periodoTexto(anio2, mes2),
-    concepto: `Mensualidad de ${nombreMes(mes2)}${descuentoProrrateo > 0 ? " (con descuento por días no usados en " + nombreMes(mes) + ")" : ""}`,
-    monto: pagoMensual,
-    descuento: descuentoProrrateo,
-    montoFinal: Number((pagoMensual - descuentoProrrateo).toFixed(2)),
-    fechaEmision: fechaEmisionRecibo2,
-    fechaVencimiento: penultimoDiaDeMes(anio2, mes2),
-    fechaPago: null,
-    estado: "PENDIENTE" as const,
-  };
-
-  return { recibo1, recibo2 };
-}
 
 const NOMBRES_MES = [
   "enero",
@@ -96,4 +22,127 @@ const NOMBRES_MES = [
 
 export function nombreMes(mesIndiceCero: number): string {
   return NOMBRES_MES[mesIndiceCero];
+}
+
+export function diasDelMes(anio: number, mesIndiceCero: number): number {
+  return new Date(anio, mesIndiceCero + 1, 0).getDate();
+}
+
+export function penultimoDiaDeMes(anio: number, mesIndiceCero: number): Date {
+  return new Date(
+    anio,
+    mesIndiceCero,
+    diasDelMes(anio, mesIndiceCero) - 1,
+    23,
+    59,
+    59,
+  );
+}
+
+// null/undefined = penúltimo día del mes
+export function fechaVencimientoDe(
+  anio: number,
+  mesIndiceCero: number,
+  diaVencimiento?: number | null,
+): Date {
+  if (diaVencimiento == null) return penultimoDiaDeMes(anio, mesIndiceCero);
+  const dia = Math.min(
+    Math.max(diaVencimiento, 1),
+    diasDelMes(anio, mesIndiceCero),
+  );
+  return new Date(anio, mesIndiceCero, dia, 23, 59, 59);
+}
+
+export function fechaCobroDe(
+  anio: number,
+  mesIndiceCero: number,
+  diaCobro: number,
+): Date {
+  const dia = Math.min(Math.max(diaCobro, 1), diasDelMes(anio, mesIndiceCero));
+  return new Date(anio, mesIndiceCero, dia);
+}
+
+export function periodoTexto(anio: number, mesIndiceCero: number): string {
+  return `${anio}-${String(mesIndiceCero + 1).padStart(2, "0")}`;
+}
+
+export function mesSiguiente(
+  anio: number,
+  mesIndiceCero: number,
+): { anio: number; mes: number } {
+  if (mesIndiceCero === 11) return { anio: anio + 1, mes: 0 };
+  return { anio, mes: mesIndiceCero + 1 };
+}
+
+const redondear = (n: number) => Number(n.toFixed(2));
+const capitalizar = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+const limitar = (t: string) => (t.length > 150 ? t.slice(0, 149) + "…" : t);
+
+export type ParametrosFacturacion = {
+  fechaHoraInstalacion: Date;
+  precioMensual: number;
+  derechoInstalacion: number;
+  servicioAdicionalPrecio: number;
+  servicioAdicionalDetalle?: string | null;
+  etiquetaPlan?: string;
+  diaCobro: number;
+  diaVencimiento: number | null;
+};
+
+export function calcularFacturacionInicial(p: ParametrosFacturacion) {
+  const anio = p.fechaHoraInstalacion.getFullYear();
+  const mes = p.fechaHoraInstalacion.getMonth();
+  const diaInstalacion = p.fechaHoraInstalacion.getDate();
+  const sufijoPlan = p.etiquetaPlan ? ` — ${p.etiquetaPlan}` : "";
+
+  // --- Recibo 1: pagado de inmediato, por adelantado ---
+  const partes: string[] = [];
+  if (p.derechoInstalacion > 0) partes.push("instalación");
+  partes.push(`mensualidad de ${nombreMes(mes)}`);
+  if (p.servicioAdicionalPrecio > 0) {
+    partes.push(
+      `servicio adicional${p.servicioAdicionalDetalle ? ` (${p.servicioAdicionalDetalle})` : ""}`,
+    );
+  }
+  const total1 = redondear(
+    p.precioMensual + p.derechoInstalacion + p.servicioAdicionalPrecio,
+  );
+
+  const recibo1 = {
+    periodo: periodoTexto(anio, mes),
+    concepto: limitar(capitalizar(partes.join(" + ")) + sufijoPlan),
+    monto: total1,
+    descuento: 0,
+    montoFinal: total1,
+    fechaEmision: p.fechaHoraInstalacion,
+    fechaCobro: p.fechaHoraInstalacion,
+    fechaVencimiento: fechaVencimientoDe(anio, mes, p.diaVencimiento),
+    fechaPago: p.fechaHoraInstalacion as Date | null,
+    estado: "PAGADO" as const,
+  };
+
+  // --- Recibo 2: mes siguiente con descuento por días no usados del mes 1 ---
+  const { anio: anio2, mes: mes2 } = mesSiguiente(anio, mes);
+  const diasNoUsados = diaInstalacion - 1;
+  const descuento = redondear(
+    (p.precioMensual / diasDelMes(anio, mes)) * diasNoUsados,
+  );
+
+  const recibo2 = {
+    periodo: periodoTexto(anio2, mes2),
+    concepto: limitar(
+      `Mensualidad de ${nombreMes(mes2)}${descuento > 0 ? ` (descuento por días no usados en ${nombreMes(mes)})` : ""}` +
+        sufijoPlan,
+    ),
+    monto: p.precioMensual,
+    descuento,
+    montoFinal: redondear(p.precioMensual - descuento),
+    fechaEmision: new Date(anio, mes, 20),
+    fechaCobro: fechaCobroDe(anio2, mes2, p.diaCobro),
+    fechaVencimiento: fechaVencimientoDe(anio2, mes2, p.diaVencimiento),
+    fechaPago: null as Date | null,
+    estado: "PENDIENTE" as const,
+  };
+
+  return { recibo1, recibo2 };
 }
