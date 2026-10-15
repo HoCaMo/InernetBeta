@@ -17,14 +17,13 @@ export default async function GestionClientesPage() {
   if (session.user.rol === "TRABAJADOR") redirect("/trabajador");
 
   const where =
-    session.user.rol === "ADMINISTRADOR"
-      ? { asignadoA: { idSupervisor: session.user.idUsuario } }
-      : {};
+    session.user.rol === "ADMINISTRADOR" ? { asignadoA: { idSupervisor: session.user.idUsuario } } : {};
 
   const clientes = await prisma.cliente.findMany({
     where,
     include: {
-      asignadoA: { select: { nombre: true } },
+      asignadoA: { select: { nombre: true, supervisor: { select: { nombre: true } } } },
+      creadoPor: { select: { nombre: true } },
       telefonos: { where: { principal: true }, take: 1 },
       servicios: { orderBy: { idServicio: "asc" } },
     },
@@ -56,60 +55,35 @@ export default async function GestionClientesPage() {
             {clientes.map((c) => {
               const primero = c.servicios[0];
               return (
-                <tr
-                  key={c.idCliente}
-                  className="border-t border-slate-800 text-slate-200"
-                >
+                <tr key={c.idCliente} className="border-t border-slate-800 text-slate-200">
                   <td className="px-4 py-2.5">
-                    <Link
-                      href={`/clientes/${c.idCliente}`}
-                      className="text-amber-400 hover:underline"
-                    >
+                    <Link href={`/clientes/${c.idCliente}`} className="text-amber-400 hover:underline">
                       {c.nombre} {c.apellido ?? ""}
                     </Link>
                   </td>
+                  <td className="px-4 py-2.5 text-slate-400">{c.telefonos[0]?.numero ?? "—"}</td>
+                  <td className="px-4 py-2.5 text-slate-400">{c.asignadoA?.nombre ?? "—"}</td>
                   <td className="px-4 py-2.5 text-slate-400">
-                    {c.telefonos[0]?.numero ?? "—"}
+                    {c.servicios.map((s) => PLAN_LABELS[s.planTarifario]).join(" + ") || "—"}
                   </td>
                   <td className="px-4 py-2.5 text-slate-400">
-                    {c.asignadoA?.nombre ?? "—"}
+                    {primero?.fechaHoraInstalacion ? new Date(primero.fechaHoraInstalacion).toLocaleDateString("es-PE") : "—"}
                   </td>
                   <td className="px-4 py-2.5 text-slate-400">
-                    {c.servicios
-                      .map((s) => PLAN_LABELS[s.planTarifario])
-                      .join(" + ") || "—"}
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-400">
-                    {primero?.fechaHoraInstalacion
-                      ? new Date(
-                          primero.fechaHoraInstalacion,
-                        ).toLocaleDateString("es-PE")
-                      : "—"}
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-400">
-                    {primero?.tieneCostoInstalacion
-                      ? `Sí (S/ ${Number(primero.derechoInstalacion).toFixed(2)})`
-                      : "No"}
+                    {primero?.tieneCostoInstalacion ? `Sí (S/ ${Number(primero.derechoInstalacion).toFixed(2)})` : "No"}
                   </td>
                   <td className="px-4 py-2.5">
-                    <span
-                      className={`rounded-full border px-2.5 py-0.5 text-xs ${estadoBadge[c.estadoAprobacion]}`}
-                    >
+                    <span className={`rounded-full border px-2.5 py-0.5 text-xs ${estadoBadge[c.estadoAprobacion]}`}>
                       {c.estadoAprobacion}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-slate-400">
-                    {c.activo === null ? "Sin definir" : c.activo ? "Sí" : "No"}
-                  </td>
+                  <td className="px-4 py-2.5 text-slate-400">{c.activo === null ? "Sin definir" : c.activo ? "Sí" : "No"}</td>
                 </tr>
               );
             })}
             {clientes.length === 0 && (
               <tr>
-                <td
-                  colSpan={8}
-                  className="px-4 py-6 text-center text-slate-500"
-                >
+                <td colSpan={8} className="px-4 py-6 text-center text-slate-500">
                   No hay clientes para mostrar.
                 </td>
               </tr>
