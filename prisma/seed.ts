@@ -1,71 +1,55 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, type RolUsuario } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "crypto";
 
 const prisma = new PrismaClient();
 
-// Genera una contraseña aleatoria legible, ej: "Xk29-Qp7m-Rt4v"
+// Si defines SEED_PASSWORD en tu .env LOCAL (nunca en Vercel ni en Git),
+// todas las cuentas nuevas usarán esa contraseña. Si no, se genera una al azar.
+const PASSWORD_FIJA = process.env.SEED_PASSWORD;
+
 function generarPasswordSegura(): string {
   const bloque = () => randomBytes(3).toString("hex");
   return `${bloque()}-${bloque()}-${bloque()}`;
 }
 
+const creadas: string[] = [];
+
+// Crea la cuenta SOLO si no existe. Si ya existe, no toca nada (ni la contraseña).
+async function asegurarUsuario(correo: string, nombre: string, rol: RolUsuario, idSupervisor?: number) {
+  const existente = await prisma.usuario.findUnique({ where: { correo } });
+  if (existente) {
+    console.log(`Ya existe: ${correo} (no se modifica)`);
+    return existente;
+  }
+
+  const password = PASSWORD_FIJA ?? generarPasswordSegura();
+  const usuario = await prisma.usuario.create({
+    data: {
+      nombre,
+      correo,
+      passwordHash: await bcrypt.hash(password, 10),
+      rol,
+      idSupervisor,
+    },
+  });
+  creadas.push(`${rol.padEnd(13)} ${correo} | ${password}`);
+  return usuario;
+}
+
 async function main() {
-  const passwordJefe = generarPasswordSegura();
-  const passwordAdmin = generarPasswordSegura();
-  const passwordTrabajador = generarPasswordSegura();
+  const jefe = await asegurarUsuario("jefe@internetfibra.com", "Jefe de Prueba", "JEFE");
+  const admin = await asegurarUsuario("admin@internetfibra.com", "Administrador de Prueba", "ADMINISTRADOR", jefe.idUsuario);
+  await asegurarUsuario("trabajador@internetfibra.com", "Trabajador de Prueba", "TRABAJADOR", admin.idUsuario);
 
-  const jefe = await prisma.usuario.upsert({
-    where: { correo: "jefe@internetfibra.com" },
-    update: { passwordHash: await bcrypt.hash(passwordJefe, 10) },
-    create: {
-      nombre: "Jefe de Prueba",
-      correo: "jefe@internetfibra.com",
-      passwordHash: await bcrypt.hash(passwordJefe, 10),
-      rol: "JEFE",
-    },
-  });
-
-  const administrador = await prisma.usuario.upsert({
-    where: { correo: "admin@internetfibra.com" },
-    update: { passwordHash: await bcrypt.hash(passwordAdmin, 10) },
-    create: {
-      nombre: "Administrador de Prueba",
-      correo: "admin@internetfibra.com",
-      passwordHash: await bcrypt.hash(passwordAdmin, 10),
-      rol: "ADMINISTRADOR",
-      idSupervisor: jefe.idUsuario,
-    },
-  });
-
-  await prisma.usuario.upsert({
-    where: { correo: "trabajador@internetfibra.com" },
-    update: { passwordHash: await bcrypt.hash(passwordTrabajador, 10) },
-    create: {
-      nombre: "Trabajador de Prueba",
-      correo: "trabajador@internetfibra.com",
-      passwordHash: await bcrypt.hash(passwordTrabajador, 10),
-      rol: "TRABAJADOR",
-      idSupervisor: administrador.idUsuario,
-    },
-  });
-
-  console.log("========================================");
-  console.log("Usuarios de prueba listos. GUARDA estas contraseñas ahora,");
-  console.log(
-    "no se te van a volver a mostrar (no quedan en texto plano en la BD):",
-  );
-  console.log("========================================");
-  console.log(
-    `Jefe          -> jefe@internetfibra.com        | ${passwordJefe}`,
-  );
-  console.log(
-    `Administrador -> admin@internetfibra.com       | ${passwordAdmin}`,
-  );
-  console.log(
-    `Trabajador    -> trabajador@internetfibra.com  | ${passwordTrabajador}`,
-  );
-  console.log("========================================");
+  if (creadas.length > 0) {
+    console.log("========================================");
+    console.log("Cuentas NUEVAS (guarda estas contraseñas, no se vuelven a mostrar):");
+    creadas.forEach((c) => console.log(c));
+    console.log("========================================");
+  } else {
+    console.log("No se creó ninguna cuenta nueva; las contraseñas no cambiaron.");
+  }
 }
 
 main()
