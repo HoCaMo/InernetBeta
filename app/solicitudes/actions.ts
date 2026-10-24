@@ -5,11 +5,8 @@ import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 import bcrypt from "bcryptjs";
 import { Prisma, type Servicio } from "@prisma/client";
-import {
-  PLAN_PRECIOS,
-  PLAN_LABELS,
-  LONGITUD_DOCUMENTO,
-} from "@/app/lib/constantes";
+import { LONGITUD_DOCUMENTO } from "@/app/lib/constantes";
+import { planDisponibleParaUsuario } from "@/app/lib/planes";
 import { calcularFacturacionInicial } from "@/app/lib/facturacion";
 import { leerDatosServicio } from "@/app/lib/servicios";
 
@@ -158,7 +155,7 @@ async function generarRecibosIniciales(
         ? Number(servicio.servicioAdicionalPrecio)
         : 0,
     servicioAdicionalDetalle: servicio.servicioAdicionalDetalle,
-    etiquetaPlan: PLAN_LABELS[servicio.planTarifario],
+    etiquetaPlan: servicio.planNombre ?? undefined,
     diaCobro: servicio.diaCobro,
     diaVencimiento: servicio.diaVencimiento,
   });
@@ -225,6 +222,11 @@ async function crearClienteInterno(formData: FormData) {
         : "NACIONAL";
 
   const servicio = leerDatosServicio(formData);
+  const plan = await planDisponibleParaUsuario(
+    servicio.idPlan,
+    idUsuario,
+    "TRABAJADOR",
+  );
 
   const latTexto = ((formData.get("latitud") as string) ?? "").trim();
   const lngTexto = ((formData.get("longitud") as string) ?? "").trim();
@@ -287,8 +289,9 @@ async function crearClienteInterno(formData: FormData) {
     const nuevoServicio = await tx.servicio.create({
       data: {
         idCliente: cliente.idCliente,
-        planTarifario: servicio.planTarifario as never,
-        precioMensual: servicio.precioMensual,
+        idPlan: plan.idPlan,
+        planNombre: plan.nombre,
+        precioMensual: plan.precioMensual,
         fechaHoraInstalacion: servicio.fechaHoraInstalacion,
         tipoAccion: servicio.tipoAccion as never,
         tipoInstalacion: servicio.tipoInstalacion as never,
@@ -338,7 +341,7 @@ async function crearClienteInterno(formData: FormData) {
 
     const mensaje =
       `Cliente "${cliente.nombre} ${cliente.apellido}" generado por ${session.user.name}. ` +
-      `Plan ${PLAN_LABELS[servicio.planTarifario]} (S/ ${servicio.precioMensual.toFixed(2)}/mes). ` +
+      `Plan ${plan.nombre} (S/ ${plan.precioMensual.toFixed(2)}/mes). ` +
       `Instalación programada: ${servicio.fechaHoraInstalacion.toLocaleString("es-PE")}. ` +
       (servicio.tieneCostoInstalacion
         ? `Derecho de instalación: S/ ${servicio.derechoInstalacion?.toFixed(2)}. `
@@ -507,10 +510,15 @@ export async function crearSolicitudCambioServicio(
 
     const cambios: Record<string, string | number | null> = {};
 
-    const plan = formData.get("planTarifario") as string;
-    if (plan && plan !== servicio.planTarifario) {
-      if (!PLAN_PRECIOS[plan]) throw new Error("Plan tarifario inválido");
-      cambios.planTarifario = plan;
+    const idPlanTexto = ((formData.get("idPlan") as string) ?? "").trim();
+    if (idPlanTexto && Number(idPlanTexto) !== servicio.idPlan) {
+      const nuevoPlan = await planDisponibleParaUsuario(
+        Number(idPlanTexto),
+        session.user.idUsuario,
+        session.user.rol,
+      );
+      cambios.idPlan = nuevoPlan.idPlan;
+      cambios.planNombre = nuevoPlan.nombre;
     }
 
     const precioTexto = (
@@ -604,6 +612,11 @@ export async function crearSolicitudNuevoServicio(
     }
 
     const s = leerDatosServicio(formData);
+    const plan = await planDisponibleParaUsuario(
+      s.idPlan,
+      session.user.idUsuario,
+      session.user.rol,
+    );
 
     await prisma.solicitud.create({
       data: {
@@ -611,8 +624,9 @@ export async function crearSolicitudNuevoServicio(
         idSolicitante: session.user.idUsuario,
         idCliente,
         datosPropuestos: {
-          planTarifario: s.planTarifario,
-          precioMensual: s.precioMensual,
+          idPlan: plan.idPlan,
+          planNombre: plan.nombre,
+          precioMensual: plan.precioMensual,
           fechaHoraInstalacion: s.fechaHoraInstalacion.toISOString(),
           tipoAccion: s.tipoAccion,
           tipoInstalacion: s.tipoInstalacion,
@@ -629,7 +643,7 @@ export async function crearSolicitudNuevoServicio(
       session.user.idUsuario,
       session.user.rol,
     );
-    const mensaje = `${session.user.name} (${session.user.rol}) solicitó agregar el plan ${PLAN_LABELS[s.planTarifario]} a "${cliente.nombre} ${cliente.apellido}".`;
+    const mensaje = `${session.user.name} (${session.user.rol}) solicitó agregar el plan ${plan.nombre} a "${cliente.nombre} ${cliente.apellido}".`;
     await prisma.notificacion.createMany({
       data: destinatarios.map((id) => ({ idUsuarioDestino: id, mensaje })),
     });
@@ -690,8 +704,11 @@ async function resolverServicioInterno(
         if (!solicitud.idServicio)
           throw new Error("La solicitud no indica a qué plan corresponde");
         const data: Prisma.ServicioUpdateInput = {};
-        if (typeof datos.planTarifario === "string")
-          data.planTarifario = datos.planTarifario as never;
+        if (typeof datos.idPlan === "number") {
+          data.plan = { connect: { idPlan: datos.idPlan } };
+          data.planNombre =
+            typeof datos.planNombre === "string" ? datos.planNombre : null;
+        }
         if (typeof datos.precioMensual === "number")
           data.precioMensual = datos.precioMensual;
         if (typeof datos.diaCobro === "number") data.diaCobro = datos.diaCobro;
@@ -711,7 +728,9 @@ async function resolverServicioInterno(
         const nuevo = await tx.servicio.create({
           data: {
             idCliente: solicitud.idCliente,
-            planTarifario: String(datos.planTarifario) as never,
+            idPlan: Number(datos.idPlan),
+            planNombre:
+              datos.planNombre == null ? null : String(datos.planNombre),
             precioMensual: Number(datos.precioMensual),
             fechaHoraInstalacion: new Date(String(datos.fechaHoraInstalacion)),
             tipoAccion: datos.tipoAccion as never,

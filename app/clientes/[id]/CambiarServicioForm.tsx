@@ -2,11 +2,12 @@
 
 import { useState, useTransition } from "react";
 import { crearSolicitudCambioServicio } from "@/app/solicitudes/actions";
-import { PLAN_LABELS, PLAN_PRECIOS } from "@/app/lib/constantes";
 
+type PlanDisp = { idPlan: number; nombre: string; precioMensual: number };
 type ServicioActual = {
   idServicio: number;
-  planTarifario: string;
+  idPlan: number | null;
+  planNombre: string | null;
   precioMensual: number;
   diaCobro: number;
   diaVencimiento: number | null;
@@ -22,27 +23,34 @@ const textoVenc = (v: string) =>
 
 export default function CambiarServicioForm({
   servicio,
+  planes,
 }: {
   servicio: ServicioActual;
+  planes: PlanDisp[];
 }) {
   const [abierto, setAbierto] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const idActual = servicio.idPlan === null ? "" : String(servicio.idPlan);
   const vencActual =
     servicio.diaVencimiento === null ? "" : String(servicio.diaVencimiento);
-  const [plan, setPlan] = useState(servicio.planTarifario);
+  const actualEnLista = planes.some((p) => String(p.idPlan) === idActual);
+
+  const [idPlan, setIdPlan] = useState(idActual);
   const [precio, setPrecio] = useState(String(servicio.precioMensual));
   const [diaCobro, setDiaCobro] = useState(String(servicio.diaCobro));
   const [diaVenc, setDiaVenc] = useState(vencActual);
 
-  // Vista previa: qué parte del plan se va a cambiar
+  const nombrePlan = (id: string) =>
+    id === idActual
+      ? (servicio.planNombre ?? "—")
+      : (planes.find((p) => String(p.idPlan) === id)?.nombre ?? "—");
+
   const cambios: string[] = [];
-  if (plan !== servicio.planTarifario)
-    cambios.push(
-      `Plan: ${PLAN_LABELS[servicio.planTarifario]} → ${PLAN_LABELS[plan]}`,
-    );
+  if (idPlan !== idActual)
+    cambios.push(`Plan: ${nombrePlan(idActual)} → ${nombrePlan(idPlan)}`);
   if (Number(precio) !== servicio.precioMensual)
     cambios.push(
       `Precio mensual: S/ ${servicio.precioMensual.toFixed(2)} → S/ ${Number(precio || 0).toFixed(2)}`,
@@ -104,17 +112,25 @@ export default function CambiarServicioForm({
             <div>
               <label className={labelClass}>Plan</label>
               <select
-                name="planTarifario"
-                value={plan}
+                name="idPlan"
+                value={idPlan}
                 onChange={(e) => {
-                  setPlan(e.target.value);
-                  setPrecio(String(PLAN_PRECIOS[e.target.value])); // sugiere el precio estándar del plan
+                  setIdPlan(e.target.value);
+                  const p = planes.find(
+                    (x) => String(x.idPlan) === e.target.value,
+                  );
+                  if (p) setPrecio(String(p.precioMensual)); // sugiere el precio del plan elegido
                 }}
                 className={inputClass}
               >
-                {Object.entries(PLAN_LABELS).map(([v, l]) => (
-                  <option key={v} value={v}>
-                    {l}
+                {!actualEnLista && (
+                  <option value={idActual}>
+                    {servicio.planNombre ?? "Sin plan"} (actual)
+                  </option>
+                )}
+                {planes.map((p) => (
+                  <option key={p.idPlan} value={p.idPlan}>
+                    {p.nombre} — S/ {p.precioMensual.toFixed(2)}
                   </option>
                 ))}
               </select>

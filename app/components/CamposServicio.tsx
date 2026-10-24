@@ -1,211 +1,80 @@
-"use client";
-
-import { useState } from "react";
+import { NextResponse } from "next/server";
+import { prisma } from "@/app/lib/db";
 import {
-  PLAN_LABELS,
-  PLAN_PRECIOS,
-  TIPO_ACCION_LABELS,
-  TIPO_INSTALACION_LABELS,
-} from "@/app/lib/constantes";
+  periodoTexto,
+  mesSiguiente,
+  nombreMes,
+  fechaVencimientoDe,
+  fechaCobroDe,
+} from "@/app/lib/facturacion";
 
-const inputClass =
-  "w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-white placeholder:text-slate-600 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/30";
-const labelClass =
-  "block font-mono text-[11px] uppercase tracking-wider text-slate-500 mb-1.5";
+// Vercel Cron llama esta ruta una vez al día (ver vercel.json). Protegida con CRON_SECRET.
+export async function GET(request: Request) {
+  const authHeader = request.headers.get("authorization");
+  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+  }
 
-const HORAS = Array.from({ length: 12 }, (_, i) => i + 1);
-const MINUTOS = [
-  "00",
-  "05",
-  "10",
-  "15",
-  "20",
-  "25",
-  "30",
-  "35",
-  "40",
-  "45",
-  "50",
-  "55",
-];
+  const hoy = new Date();
+  const resultados = { emitidos: 0, vencidos: 0 };
 
-// Campos de UN plan de internet. Se usa al crear un cliente y al agregarle otro plan.
-// Para reiniciarlo después de enviar, vuelve a montarlo cambiándole la prop "key".
-export default function CamposServicio() {
-  const [plan, setPlan] = useState("MBPS_200");
-  const [tieneCosto, setTieneCosto] = useState("no");
-  const [tieneAdicional, setTieneAdicional] = useState("no");
+  // 1) El día 20: emite el recibo del mes siguiente de cada plan que aún no lo tenga
+  if (hoy.getDate() === 20) {
+    const { anio, mes } = mesSiguiente(hoy.getFullYear(), hoy.getMonth());
+    const periodo = periodoTexto(anio, mes);
 
-  return (
-    <div className="space-y-4">
-      <div>
-        <label className={labelClass}>Plan tarifario *</label>
-        <select
-          name="planTarifario"
-          required
-          value={plan}
-          onChange={(e) => setPlan(e.target.value)}
-          className={inputClass}
-        >
-          {Object.entries(PLAN_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <p className="mt-1 text-sm font-medium text-amber-400">
-          Pago mensual: S/ {PLAN_PRECIOS[plan].toFixed(2)}
-        </p>
-      </div>
+    const servicios = await prisma.servicio.findMany({
+      where: { cliente: { estadoAprobacion: "ACEPTADO", activo: true } },
+      include: { cliente: true },
+    });
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass}>Tipo de acción *</label>
-          <select
-            name="tipoAccion"
-            required
-            defaultValue="INSTALACION_NUEVA"
-            className={inputClass}
-          >
-            {Object.entries(TIPO_ACCION_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className={labelClass}>Fijo / No fijo *</label>
-          <select
-            name="tipoInstalacion"
-            required
-            defaultValue="FIJO"
-            className={inputClass}
-          >
-            {Object.entries(TIPO_INSTALACION_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+    for (const s of servicios) {
+      const yaExiste = await prisma.pago.findFirst({
+        where: { idServicio: s.idServicio, periodo },
+      });
+      if (yaExiste) continue;
 
-      <div>
-        <label className={labelClass}>Fecha y hora de instalación *</label>
-        <div className="grid gap-3 sm:grid-cols-[1.4fr_0.8fr_0.8fr_0.8fr]">
-          <input
-            name="fechaInstalacion"
-            type="date"
-            required
-            className={inputClass}
-          />
-          <select
-            name="horaInstalacion"
-            defaultValue="9"
-            className={inputClass}
-          >
-            {HORAS.map((h) => (
-              <option key={h} value={h}>
-                {h}
-              </option>
-            ))}
-          </select>
-          <select
-            name="minutoInstalacion"
-            defaultValue="00"
-            className={inputClass}
-          >
-            {MINUTOS.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-          <select
-            name="periodoInstalacion"
-            defaultValue="AM"
-            className={inputClass}
-          >
-            <option value="AM">AM</option>
-            <option value="PM">PM</option>
-          </select>
-        </div>
-      </div>
+      const precio = Number(s.precioMensual);
+      const vencimiento = fechaVencimientoDe(anio, mes, s.diaVencimiento);
 
-      {/* --- Derecho de instalación (opcional) --- */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass}>
-            ¿Se cobrará derecho de instalación?
-          </label>
-          <select
-            name="tieneCostoInstalacion"
-            value={tieneCosto}
-            onChange={(e) => setTieneCosto(e.target.value)}
-            className={inputClass}
-          >
-            <option value="no">No</option>
-            <option value="si">Sí</option>
-          </select>
-        </div>
-        {tieneCosto === "si" && (
-          <div>
-            <label className={labelClass}>Monto (S/) *</label>
-            <input
-              name="derechoInstalacion"
-              type="number"
-              min="0"
-              step="0.01"
-              required
-              placeholder="200.00"
-              className={inputClass}
-            />
-          </div>
-        )}
-      </div>
+      await prisma.pago.create({
+        data: {
+          idCliente: s.idCliente,
+          idServicio: s.idServicio,
+          periodo,
+          concepto: `Mensualidad de ${nombreMes(mes)} — ${s.planNombre ?? "Plan"}`,
+          monto: precio,
+          descuento: 0,
+          montoFinal: precio,
+          fechaEmision: hoy,
+          fechaCobro: fechaCobroDe(anio, mes, s.diaCobro),
+          fechaVencimiento: vencimiento,
+          estado: "PENDIENTE",
+        },
+      });
 
-      {/* --- Servicio adicional (opcional): el trabajador escribe el tipo y el precio --- */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass}>¿Se hará un servicio adicional?</label>
-          <select
-            name="tieneServicioAdicional"
-            value={tieneAdicional}
-            onChange={(e) => setTieneAdicional(e.target.value)}
-            className={inputClass}
-          >
-            <option value="no">No</option>
-            <option value="si">Sí</option>
-          </select>
-        </div>
-      </div>
-      {tieneAdicional === "si" && (
-        <div className="grid gap-4 sm:grid-cols-[2fr_1fr]">
-          <div>
-            <label className={labelClass}>¿Qué servicio adicional? *</label>
-            <input
-              name="servicioAdicionalDetalle"
-              required
-              maxLength={120}
-              placeholder="Ej: punto de red adicional, extensión de cable, repetidor WiFi"
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Precio (S/) *</label>
-            <input
-              name="servicioAdicionalPrecio"
-              type="number"
-              min="0"
-              step="0.01"
-              required
-              placeholder="50.00"
-              className={inputClass}
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  );
+      if (s.cliente.idAsignadoA) {
+        await prisma.notificacion.create({
+          data: {
+            idUsuarioDestino: s.cliente.idAsignadoA,
+            mensaje: `Se emitió el recibo de ${nombreMes(mes)} (${s.planNombre ?? "plan"}) de "${s.cliente.nombre} ${s.cliente.apellido}". Debe pagarse antes del ${vencimiento.toLocaleDateString("es-PE")} para no suspender el servicio.`,
+          },
+        });
+      }
+      resultados.emitidos++;
+    }
+  }
+
+  // 2) Marca como VENCIDO todo pago PENDIENTE cuya fecha de vencimiento ya pasó
+  const vencidos = await prisma.pago.updateMany({
+    where: { estado: "PENDIENTE", fechaVencimiento: { lt: hoy } },
+    data: { estado: "VENCIDO" },
+  });
+  resultados.vencidos = vencidos.count;
+
+  return NextResponse.json({
+    ok: true,
+    fecha: hoy.toISOString(),
+    ...resultados,
+  });
 }

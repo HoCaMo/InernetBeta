@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/app/lib/db";
 import Shell from "@/app/components/Shell";
 import ClienteNuevoForm from "./ClienteNuevoForm";
+import { planesDisponibles } from "@/app/lib/planes";
 
 export default async function NuevoClientePage() {
   const session = await auth();
@@ -17,6 +18,8 @@ export default async function NuevoClientePage() {
       </Shell>
     );
   }
+
+  const planes = await planesDisponibles(session.user.idUsuario, "TRABAJADOR");
 
   const ubigeos = await prisma.ubigeo.findMany({
     orderBy: [
@@ -35,7 +38,7 @@ export default async function NuevoClientePage() {
         Completa todos los campos obligatorios (*). El cliente quedará pendiente
         hasta que un administrador o el jefe lo revise.
       </p>
-      <ClienteNuevoForm ubigeos={ubigeos} />
+      <ClienteNuevoForm ubigeos={ubigeos} planes={planes} />
     </Shell>
   );
 }

@@ -3,7 +3,6 @@ import { prisma } from "@/app/lib/db";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import Shell from "@/app/components/Shell";
-import { PLAN_LABELS } from "@/app/lib/constantes";
 
 const badgeColor: Record<string, string> = {
   PENDIENTE: "bg-amber-500/15 text-amber-400 border-amber-500/30",
@@ -79,7 +78,7 @@ export default async function TrabajadorPage() {
                     </td>
                     <td className="px-4 py-2.5 text-slate-400">
                       {c.servicios
-                        .map((s) => PLAN_LABELS[s.planTarifario])
+                        .map((s) => s.planNombre ?? "—")
                         .join(" + ") || "—"}
                     </td>
                     <td className="px-4 py-2.5 text-slate-400">

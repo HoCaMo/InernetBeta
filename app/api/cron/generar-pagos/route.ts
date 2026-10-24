@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/app/lib/db";
-import { PLAN_LABELS } from "@/app/lib/constantes";
 import {
   periodoTexto,
   mesSiguiente,
@@ -43,7 +42,7 @@ export async function GET(request: Request) {
           idCliente: s.idCliente,
           idServicio: s.idServicio,
           periodo,
-          concepto: `Mensualidad de ${nombreMes(mes)} — ${PLAN_LABELS[s.planTarifario]}`,
+          concepto: `Mensualidad de ${nombreMes(mes)} — ${s.planNombre ?? "Plan"}`,
           monto: precio,
           descuento: 0,
           montoFinal: precio,
@@ -58,7 +57,7 @@ export async function GET(request: Request) {
         await prisma.notificacion.create({
           data: {
             idUsuarioDestino: s.cliente.idAsignadoA,
-            mensaje: `Se emitió el recibo de ${nombreMes(mes)} (${PLAN_LABELS[s.planTarifario]}) de "${s.cliente.nombre} ${s.cliente.apellido}". Debe pagarse antes del ${vencimiento.toLocaleDateString("es-PE")} para no suspender el servicio.`,
+            mensaje: `Se emitió el recibo de ${nombreMes(mes)} (${s.planNombre ?? "plan"}) de "${s.cliente.nombre} ${s.cliente.apellido}". Debe pagarse antes del ${vencimiento.toLocaleDateString("es-PE")} para no suspender el servicio.`,
           },
         });
       }

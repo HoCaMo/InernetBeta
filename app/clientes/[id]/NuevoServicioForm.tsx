@@ -4,10 +4,14 @@ import { useState, useTransition } from "react";
 import { crearSolicitudNuevoServicio } from "@/app/solicitudes/actions";
 import CamposServicio from "@/app/components/CamposServicio";
 
+type PlanDisp = { idPlan: number; nombre: string; precioMensual: number };
+
 export default function NuevoServicioForm({
   idCliente,
+  planes,
 }: {
   idCliente: number;
+  planes: PlanDisp[];
 }) {
   const [abierto, setAbierto] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -63,7 +67,7 @@ export default function NuevoServicioForm({
               {error}
             </p>
           )}
-          <CamposServicio key={reinicio} />
+          <CamposServicio key={reinicio} planes={planes} />
           <div className="flex gap-3">
             <button
               type="submit"

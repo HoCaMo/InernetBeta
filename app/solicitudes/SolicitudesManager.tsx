@@ -1,7 +1,6 @@
 "use client";
 
 import { useTransition, useState } from "react";
-import { PLAN_LABELS } from "@/app/lib/constantes";
 import {
   resolverSolicitudCliente,
   resolverSolicitudServicio,
@@ -66,10 +65,8 @@ function resumenPropuesta(s: SolicitudConRelaciones): string | null {
 
   if (s.tipo === "CAMBIO_SERVICIO" && datos) {
     const partes: string[] = [];
-    if (typeof datos.planTarifario === "string")
-      partes.push(
-        `Plan → ${PLAN_LABELS[datos.planTarifario] ?? datos.planTarifario}`,
-      );
+    if (typeof datos.planNombre === "string")
+      partes.push(`Plan → ${datos.planNombre}`);
     if (typeof datos.precioMensual === "number")
       partes.push(`Precio → ${dinero(datos.precioMensual)}`);
     if (typeof datos.diaCobro === "number")
@@ -86,10 +83,8 @@ function resumenPropuesta(s: SolicitudConRelaciones): string | null {
 
   if (s.tipo === "NUEVO_SERVICIO" && datos) {
     const partes: string[] = [];
-    if (typeof datos.planTarifario === "string")
-      partes.push(
-        `Plan ${PLAN_LABELS[datos.planTarifario] ?? datos.planTarifario}`,
-      );
+    if (typeof datos.planNombre === "string")
+      partes.push(`Plan ${datos.planNombre}`);
     if (datos.fechaHoraInstalacion)
       partes.push(
         `Instalación ${new Date(String(datos.fechaHoraInstalacion)).toLocaleString("es-PE")}`,

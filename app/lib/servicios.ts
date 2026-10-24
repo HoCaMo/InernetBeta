@@ -1,8 +1,5 @@
-import { PLAN_PRECIOS } from "@/app/lib/constantes";
-
 export type DatosServicio = {
-  planTarifario: string;
-  precioMensual: number;
+  idPlan: number;
   fechaHoraInstalacion: Date;
   tipoAccion: string;
   tipoInstalacion: string;
@@ -20,13 +17,13 @@ function leerMonto(formData: FormData, campo: string, mensaje: string): number {
   return valor;
 }
 
+// Lee y valida los campos de un plan/servicio. El plan en sí (nombre y precio) se valida
+// aparte contra el catálogo, según los planes disponibles para quien lo pide.
 export function leerDatosServicio(formData: FormData): DatosServicio {
-  // --- Plan: el precio sale de la tabla de planes ---
-  const planTarifario = formData.get("planTarifario") as string;
-  const precioMensual = PLAN_PRECIOS[planTarifario];
-  if (!precioMensual) throw new Error("Selecciona un plan tarifario válido");
+  const idPlan = Number(formData.get("idPlan"));
+  if (!Number.isInteger(idPlan) || idPlan <= 0)
+    throw new Error("Selecciona un plan");
 
-  // --- Fecha y hora de instalación (hora 1-12 + AM/PM) ---
   const fechaTexto = formData.get("fechaInstalacion") as string;
   const horaTexto = formData.get("horaInstalacion") as string;
   const minutoTexto = formData.get("minutoInstalacion") as string;
@@ -58,7 +55,6 @@ export function leerDatosServicio(formData: FormData): DatosServicio {
   if (!tipoAccion || !tipoInstalacion)
     throw new Error("Indica el tipo de acción y si es fijo o no fijo");
 
-  // --- Derecho de instalación (opcional) ---
   const tieneCostoInstalacion = formData.get("tieneCostoInstalacion") === "si";
   const derechoInstalacion = tieneCostoInstalacion
     ? leerMonto(
@@ -68,7 +64,6 @@ export function leerDatosServicio(formData: FormData): DatosServicio {
       )
     : null;
 
-  // --- Servicio adicional (opcional): el trabajador escribe el tipo y el precio ---
   const tieneServicioAdicional =
     formData.get("tieneServicioAdicional") === "si";
   let servicioAdicionalDetalle: string | null = null;
@@ -91,8 +86,7 @@ export function leerDatosServicio(formData: FormData): DatosServicio {
   }
 
   return {
-    planTarifario,
-    precioMensual,
+    idPlan,
     fechaHoraInstalacion,
     tipoAccion,
     tipoInstalacion,

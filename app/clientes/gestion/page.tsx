@@ -3,7 +3,6 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import Shell from "@/app/components/Shell";
 import Link from "next/link";
-import { PLAN_LABELS } from "@/app/lib/constantes";
 
 const estadoBadge: Record<string, string> = {
   PENDIENTE: "bg-amber-500/15 text-amber-400 border-amber-500/30",
@@ -86,9 +85,8 @@ export default async function GestionClientesPage() {
                     {c.asignadoA?.supervisor?.nombre ?? "—"}
                   </td>
                   <td className="px-4 py-2.5 text-slate-400">
-                    {c.servicios
-                      .map((s) => PLAN_LABELS[s.planTarifario])
-                      .join(" + ") || "—"}
+                    {c.servicios.map((s) => s.planNombre ?? "—").join(" + ") ||
+                      "—"}
                   </td>
                   <td className="px-4 py-2.5 text-slate-400">
                     {primero?.fechaHoraInstalacion

@@ -95,7 +95,7 @@ model Cliente {
   usoServicio                 UsoServicio?         @map("uso_servicio")
   condicionCliente            CondicionCliente?    @map("condicion_cliente")
   fechaInicio                 DateTime?            @map("fecha_inicio") @db.Timestamptz
-  planTarifario                PlanTarifario?       @map("plan_tarifario")
+  planTarifario               PlanTarifario?        @map("plan_tarifario")
   pagoMensual                  Decimal?             @map("pago_mensual") @db.Decimal(6, 2)
   derechoInstalacion           Decimal?             @map("derecho_instalacion") @db.Decimal(6, 2)
   activo                        Boolean?             // null = aún no lo define jefe/administrador
@@ -110,6 +110,7 @@ model Cliente {
   @@index([apellido])
   @@map("cliente")
   servicios Servicio[]
+  
 }
 
 model DocumentoCliente {
@@ -185,6 +186,9 @@ model Usuario {
 
   @@index([idSupervisor])
   @@map("usuario")
+  planesCreados    Plan[]              @relation("PlanCreadoPor")
+  planesPermitidos PlanAdministrador[] @relation("PlanesDelAdministrador")
+
 }
 
 model Solicitud {
@@ -351,7 +355,40 @@ model Servicio {
   fechaCreacion            DateTime         @default(now()) @map("fecha_creacion") @db.Timestamptz
  
   pagos                    Pago[]
+
+  idPlan      Int?    @map("id_plan")
+  plan        Plan?   @relation(fields: [idPlan], references: [idPlan], onDelete: SetNull)
+  planNombre  String? @map("plan_nombre") @db.VarChar(80)
  
   @@index([idCliente])
   @@map("servicio")
+  @@index([idPlan])
+}
+//-
+model Plan {
+  idPlan             Int       @id @default(autoincrement()) @map("id_plan")
+  nombre             String    @db.VarChar(80)
+  velocidadMbps      Int?      @map("velocidad_mbps")
+  precioMensual      Decimal   @map("precio_mensual") @db.Decimal(8, 2)
+  paraTodos          Boolean   @default(true) @map("para_todos")
+  activo             Boolean   @default(true) // false = eliminado: los clientes que lo tuvieron lo conservan
+  idCreadoPor        Int?      @map("id_creado_por")
+  creadoPor          Usuario?  @relation("PlanCreadoPor", fields: [idCreadoPor], references: [idUsuario], onDelete: SetNull)
+  fechaCreacion      DateTime  @default(now()) @map("fecha_creacion") @db.Timestamptz
+  fechaActualizacion DateTime  @default(now()) @map("fecha_actualizacion") @db.Timestamptz
+ 
+  administradores PlanAdministrador[]
+  servicios       Servicio[]
+ 
+  @@map("plan")
+}
+//-
+model PlanAdministrador {
+  idPlan          Int     @map("id_plan")
+  plan            Plan    @relation(fields: [idPlan], references: [idPlan], onDelete: Cascade)
+  idAdministrador Int     @map("id_administrador")
+  administrador   Usuario @relation("PlanesDelAdministrador", fields: [idAdministrador], references: [idUsuario], onDelete: Cascade)
+ 
+  @@id([idPlan, idAdministrador])
+  @@map("plan_administrador")
 }
