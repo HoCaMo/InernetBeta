@@ -337,7 +337,7 @@ model Servicio {
   idCliente                Int              @map("id_cliente")
   cliente                  Cliente          @relation(fields: [idCliente], references: [idCliente], onDelete: Cascade)
  
-  planTarifario            PlanTarifario    @map("plan_tarifario")
+  planTarifario            PlanTarifario?    @map("plan_tarifario")
   precioMensual            Decimal          @map("precio_mensual") @db.Decimal(8, 2)
   diaCobro                 Int              @default(1) @map("dia_cobro")
   diaVencimiento           Int?             @map("dia_vencimiento") // null = penúltimo día del mes

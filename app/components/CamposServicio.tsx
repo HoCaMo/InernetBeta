@@ -2,26 +2,18 @@
 
 import { useState } from "react";
 import {
-  PLAN_LABELS,
-  PLAN_PRECIOS,
   TIPO_ACCION_LABELS,
   TIPO_INSTALACION_LABELS,
 } from "@/app/lib/constantes";
 
-type PlanDisp = {
-  idPlan: number;
-  nombre: string;
-  precioMensual: number;
-};
+type PlanDisp = { idPlan: number; nombre: string; precioMensual: number };
 
 const inputClass =
   "w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-white placeholder:text-slate-600 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/30";
-
 const labelClass =
   "block font-mono text-[11px] uppercase tracking-wider text-slate-500 mb-1.5";
 
 const HORAS = Array.from({ length: 12 }, (_, i) => i + 1);
-
 const MINUTOS = [
   "00",
   "05",
@@ -37,54 +29,52 @@ const MINUTOS = [
   "55",
 ];
 
-export default function CamposServicio({ planes }: { planes?: PlanDisp[] }) {
-  const [plan, setPlan] = useState(
-    planes?.length ? String(planes[0].idPlan) : "MBPS_200",
+// Campos de UN plan de internet. Se usa al crear un cliente y al agregarle otro plan.
+// Para reiniciarlo después de enviar, vuelve a montarlo cambiándole la prop "key".
+export default function CamposServicio({ planes }: { planes: PlanDisp[] }) {
+  const [idPlan, setIdPlan] = useState(
+    planes[0] ? String(planes[0].idPlan) : "",
   );
-
+  const planElegido = planes.find((p) => String(p.idPlan) === idPlan);
   const [tieneCosto, setTieneCosto] = useState("no");
   const [tieneAdicional, setTieneAdicional] = useState("no");
-
-  const planSeleccionado = planes?.find((p) => String(p.idPlan) === plan);
-
-  const precioMensual = planes?.length
-    ? (planSeleccionado?.precioMensual ?? 0)
-    : (PLAN_PRECIOS[plan] ?? 0);
 
   return (
     <div className="space-y-4">
       <div>
         <label className={labelClass}>Plan tarifario *</label>
-
-        <select
-          name={planes?.length ? "idPlan" : "planTarifario"}
-          required
-          value={plan}
-          onChange={(e) => setPlan(e.target.value)}
-          className={inputClass}
-        >
-          {planes?.length
-            ? planes.map((p) => (
-                <option key={p.idPlan} value={String(p.idPlan)}>
+        {planes.length === 0 ? (
+          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+            No hay planes disponibles para ti. Pide al jefe que te habilite
+            alguno.
+          </p>
+        ) : (
+          <>
+            <select
+              name="idPlan"
+              required
+              value={idPlan}
+              onChange={(e) => setIdPlan(e.target.value)}
+              className={inputClass}
+            >
+              {planes.map((p) => (
+                <option key={p.idPlan} value={p.idPlan}>
                   {p.nombre}
                 </option>
-              ))
-            : Object.entries(PLAN_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
               ))}
-        </select>
-
-        <p className="mt-1 text-sm font-medium text-amber-400">
-          Pago mensual: S/ {precioMensual.toFixed(2)}
-        </p>
+            </select>
+            {planElegido && (
+              <p className="mt-1 text-sm font-medium text-amber-400">
+                Pago mensual: S/ {planElegido.precioMensual.toFixed(2)}
+              </p>
+            )}
+          </>
+        )}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className={labelClass}>Tipo de acción *</label>
-
           <select
             name="tipoAccion"
             required
@@ -98,10 +88,8 @@ export default function CamposServicio({ planes }: { planes?: PlanDisp[] }) {
             ))}
           </select>
         </div>
-
         <div>
           <label className={labelClass}>Fijo / No fijo *</label>
-
           <select
             name="tipoInstalacion"
             required
@@ -119,7 +107,6 @@ export default function CamposServicio({ planes }: { planes?: PlanDisp[] }) {
 
       <div>
         <label className={labelClass}>Fecha y hora de instalación *</label>
-
         <div className="grid gap-3 sm:grid-cols-[1.4fr_0.8fr_0.8fr_0.8fr]">
           <input
             name="fechaInstalacion"
@@ -127,7 +114,6 @@ export default function CamposServicio({ planes }: { planes?: PlanDisp[] }) {
             required
             className={inputClass}
           />
-
           <select
             name="horaInstalacion"
             defaultValue="9"
@@ -139,7 +125,6 @@ export default function CamposServicio({ planes }: { planes?: PlanDisp[] }) {
               </option>
             ))}
           </select>
-
           <select
             name="minutoInstalacion"
             defaultValue="00"
@@ -151,7 +136,6 @@ export default function CamposServicio({ planes }: { planes?: PlanDisp[] }) {
               </option>
             ))}
           </select>
-
           <select
             name="periodoInstalacion"
             defaultValue="AM"
@@ -163,13 +147,12 @@ export default function CamposServicio({ planes }: { planes?: PlanDisp[] }) {
         </div>
       </div>
 
-      {/* Derecho de instalación opcional */}
+      {/* --- Derecho de instalación (opcional) --- */}
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className={labelClass}>
             ¿Se cobrará derecho de instalación?
           </label>
-
           <select
             name="tieneCostoInstalacion"
             value={tieneCosto}
@@ -180,11 +163,9 @@ export default function CamposServicio({ planes }: { planes?: PlanDisp[] }) {
             <option value="si">Sí</option>
           </select>
         </div>
-
         {tieneCosto === "si" && (
           <div>
             <label className={labelClass}>Monto (S/) *</label>
-
             <input
               name="derechoInstalacion"
               type="number"
@@ -198,11 +179,10 @@ export default function CamposServicio({ planes }: { planes?: PlanDisp[] }) {
         )}
       </div>
 
-      {/* Servicio adicional opcional */}
+      {/* --- Servicio adicional (opcional): el trabajador escribe el tipo y el precio --- */}
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className={labelClass}>¿Se hará un servicio adicional?</label>
-
           <select
             name="tieneServicioAdicional"
             value={tieneAdicional}
@@ -214,12 +194,10 @@ export default function CamposServicio({ planes }: { planes?: PlanDisp[] }) {
           </select>
         </div>
       </div>
-
       {tieneAdicional === "si" && (
         <div className="grid gap-4 sm:grid-cols-[2fr_1fr]">
           <div>
             <label className={labelClass}>¿Qué servicio adicional? *</label>
-
             <input
               name="servicioAdicionalDetalle"
               required
@@ -228,10 +206,8 @@ export default function CamposServicio({ planes }: { planes?: PlanDisp[] }) {
               className={inputClass}
             />
           </div>
-
           <div>
             <label className={labelClass}>Precio (S/) *</label>
-
             <input
               name="servicioAdicionalPrecio"
               type="number"
