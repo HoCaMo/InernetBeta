@@ -4,7 +4,11 @@ import { useState, useTransition } from "react";
 import { crearSolicitudNuevoServicio } from "@/app/solicitudes/actions";
 import CamposServicio from "@/app/components/CamposServicio";
 
-type PlanDisp = { idPlan: number; nombre: string; precioMensual: number };
+type PlanDisp = {
+  idPlan: number;
+  nombre: string;
+  precioMensual: number;
+};
 
 export default function NuevoServicioForm({
   idCliente,
@@ -22,13 +26,16 @@ export default function NuevoServicioForm({
   function handleSubmit(formData: FormData) {
     setError(null);
     setMensaje(null);
+
     startTransition(async () => {
       try {
         const res = await crearSolicitudNuevoServicio(idCliente, formData);
+
         if (!res.ok) {
           setError(res.error);
           return;
         }
+
         setMensaje(
           "Solicitud enviada. Un administrador o el jefe la revisará.",
         );
@@ -47,14 +54,17 @@ export default function NuevoServicioForm({
       <h2 className="mb-1 text-sm font-mono uppercase tracking-wider text-amber-500">
         Agregar otro plan
       </h2>
+
       <p className="mb-3 text-xs text-slate-500">
         El cliente conserva el mismo DNI y teléfono; el nuevo plan tendrá sus
         propios recibos.
       </p>
+
       {mensaje && <p className="mb-2 text-xs text-emerald-400">{mensaje}</p>}
 
       {!abierto ? (
         <button
+          type="button"
           onClick={() => setAbierto(true)}
           className="rounded-lg border border-amber-500/40 px-4 py-2 text-sm text-amber-400 hover:bg-amber-500/10"
         >
@@ -67,7 +77,9 @@ export default function NuevoServicioForm({
               {error}
             </p>
           )}
+
           <CamposServicio key={reinicio} planes={planes} />
+
           <div className="flex gap-3">
             <button
               type="submit"
@@ -76,9 +88,13 @@ export default function NuevoServicioForm({
             >
               {isPending ? "Enviando..." : "Enviar solicitud"}
             </button>
+
             <button
               type="button"
-              onClick={() => setAbierto(false)}
+              onClick={() => {
+                setAbierto(false);
+                setError(null);
+              }}
               className="text-sm text-slate-500 hover:text-slate-400"
             >
               Cancelar
