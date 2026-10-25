@@ -1,225 +1,340 @@
-"use client";
-
-import { useState } from "react";
+import { prisma } from "@/app/lib/db";
+import { auth } from "@/auth";
+import { redirect } from "next/navigation";
+import ClienteDetalle from "./ClienteDetalle";
+import InstalacionForm from "./InstalacionForm";
+import EditarClienteForm from "./EditarClienteForm";
+import CambiarServicioForm from "./CambiarServicioForm";
+import NuevoServicioForm from "./NuevoServicioForm";
+import MapaClientes from "@/app/ubigeo/mapa/MapaClientes";
+import Shell from "@/app/components/Shell";
+import Link from "next/link";
 import {
   TIPO_ACCION_LABELS,
   TIPO_INSTALACION_LABELS,
 } from "@/app/lib/constantes";
+import { planesDisponibles } from "@/app/lib/planes";
 
-type PlanDisp = { idPlan: number; nombre: string; precioMensual: number };
+const estadoPagoBadge: Record<string, string> = {
+  PENDIENTE: "bg-amber-500/15 text-amber-400 border-amber-500/30",
+  PAGADO: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
+  VENCIDO: "bg-red-500/15 text-red-400 border-red-500/30",
+};
 
-const inputClass =
-  "w-full rounded-lg border border-slate-700 bg-slate-950/60 px-3 py-2.5 text-sm text-white placeholder:text-slate-600 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-500/30";
-const labelClass =
-  "block font-mono text-[11px] uppercase tracking-wider text-slate-500 mb-1.5";
+const fecha = (d: Date | null) =>
+  d ? new Date(d).toLocaleDateString("es-PE") : "—";
+const dinero = (v: unknown) => `S/ ${Number(v).toFixed(2)}`;
 
-const HORAS = Array.from({ length: 12 }, (_, i) => i + 1);
-const MINUTOS = [
-  "00",
-  "05",
-  "10",
-  "15",
-  "20",
-  "25",
-  "30",
-  "35",
-  "40",
-  "45",
-  "50",
-  "55",
-];
+export default async function ClienteDetallePage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const session = await auth();
+  if (!session) redirect("/login");
 
-// Campos de UN plan de internet. Se usa al crear un cliente y al agregarle otro plan.
-// Para reiniciarlo después de enviar, vuelve a montarlo cambiándole la prop "key".
-export default function CamposServicio({ planes }: { planes: PlanDisp[] }) {
-  const [idPlan, setIdPlan] = useState(
-    planes[0] ? String(planes[0].idPlan) : "",
-  );
-  const planElegido = planes.find((p) => String(p.idPlan) === idPlan);
-  const [tieneCosto, setTieneCosto] = useState("no");
-  const [tieneAdicional, setTieneAdicional] = useState("no");
+  const { id } = await params;
+  const idCliente = Number(id);
+
+  if (Number.isNaN(idCliente)) {
+    return (
+      <Shell nombre={session.user.name ?? ""} rol={session.user.rol}>
+        <p className="text-slate-400">
+          El identificador del cliente no es válido.
+        </p>
+      </Shell>
+    );
+  }
+
+  const cliente = await prisma.cliente.findUnique({
+    where: { idCliente },
+    include: {
+      telefonos: true,
+      documentos: true,
+      ubigeo: true,
+      servicios: {
+        orderBy: { idServicio: "asc" },
+        include: { pagos: { orderBy: { periodo: "asc" } } },
+      },
+      asignadoA: {
+        select: {
+          idUsuario: true,
+          nombre: true,
+          idSupervisor: true,
+          supervisor: { select: { nombre: true } },
+        },
+      },
+      creadoPor: { select: { nombre: true } },
+    },
+  });
+
+  if (!cliente) {
+    return (
+      <Shell nombre={session.user.name ?? ""} rol={session.user.rol}>
+        <p className="text-slate-400">Cliente no encontrado.</p>
+      </Shell>
+    );
+  }
+
+  const esTrabajadorDueño =
+    session.user.rol === "TRABAJADOR" &&
+    cliente.idAsignadoA === session.user.idUsuario;
+  const esAdministradorSupervisor =
+    session.user.rol === "ADMINISTRADOR" &&
+    cliente.asignadoA?.idSupervisor === session.user.idUsuario;
+  const esJefe = session.user.rol === "JEFE";
+
+  if (!esTrabajadorDueño && !esAdministradorSupervisor && !esJefe) {
+    return (
+      <Shell nombre={session.user.name ?? ""} rol={session.user.rol}>
+        <p className="text-slate-400">No tienes acceso a este cliente.</p>
+      </Shell>
+    );
+  }
+
+  const puedeCompletarInstalacion =
+    session.user.rol === "ADMINISTRADOR" || session.user.rol === "JEFE";
+  const puedeSolicitarEdicion = esTrabajadorDueño || esAdministradorSupervisor;
+  const puedeSolicitarPlanes =
+    puedeSolicitarEdicion && cliente.estadoAprobacion === "ACEPTADO";
+  const planes = puedeSolicitarPlanes
+    ? await planesDisponibles(session.user.idUsuario, session.user.rol)
+    : [];
 
   return (
-    <div className="space-y-4">
-      <div>
-        <label className={labelClass}>Plan tarifario *</label>
-        {planes.length === 0 ? (
-          <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
-            No hay planes disponibles para ti. Pide al jefe que te habilite
-            alguno.
-          </p>
-        ) : (
-          <>
-            <select
-              name="idPlan"
-              required
-              value={idPlan}
-              onChange={(e) => setIdPlan(e.target.value)}
-              className={inputClass}
-            >
-              {planes.map((p) => (
-                <option key={p.idPlan} value={p.idPlan}>
-                  {p.nombre}
-                </option>
-              ))}
-            </select>
-            {planElegido && (
-              <p className="mt-1 text-sm font-medium text-amber-400">
-                Pago mensual: S/ {planElegido.precioMensual.toFixed(2)}
-              </p>
-            )}
-          </>
-        )}
+    <Shell nombre={session.user.name ?? ""} rol={session.user.rol}>
+      <Link
+        href="/clientes/gestion"
+        className="text-sm text-amber-500 hover:text-amber-400"
+      >
+        ← Volver a la lista
+      </Link>
+
+      <h1 className="mt-4 text-2xl font-semibold text-white">
+        {cliente.nombre} {cliente.apellido ?? ""}
+      </h1>
+      <p className="text-xs text-slate-500">
+        Creado por: {cliente.creadoPor?.nombre ?? "—"} · Trabajador asignado:{" "}
+        {cliente.asignadoA?.nombre ?? "—"} · Administrador:{" "}
+        {cliente.asignadoA?.supervisor?.nombre ?? "—"}
+      </p>
+
+      <div className="mt-2 grid gap-x-8 gap-y-1 text-sm text-slate-400 sm:grid-cols-2">
+        <p>
+          Tipo: {cliente.tipoCliente} — Estado: {cliente.estadoAprobacion}
+        </p>
+        <p>Correo: {cliente.correo ?? "—"}</p>
+        <p>Domicilio: {cliente.direccion ?? "—"}</p>
+        <p>
+          Ubigeo:{" "}
+          {cliente.ubigeo
+            ? `${cliente.ubigeo.departamento} / ${cliente.ubigeo.provincia} / ${cliente.ubigeo.distrito}`
+            : "—"}
+        </p>
+        <p>Nacionalidad: {cliente.nacionalidad ?? "—"}</p>
+        <p>Uso del servicio: {cliente.usoServicio ?? "—"}</p>
+        <p>Condición: {cliente.condicionCliente ?? "—"}</p>
+        <p>
+          Activo:{" "}
+          {cliente.activo === null
+            ? "Sin definir"
+            : cliente.activo
+              ? "Sí"
+              : "No"}
+        </p>
+        <p>
+          Teléfonos: {cliente.telefonos.map((t) => t.numero).join(", ") || "—"}
+        </p>
+        <p>
+          Documento:{" "}
+          {cliente.documentos
+            .map((d) => `${d.tipoDocumento} ${d.numeroDocumento}`)
+            .join(", ") || "—"}
+        </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass}>Tipo de acción *</label>
-          <select
-            name="tipoAccion"
-            required
-            defaultValue="INSTALACION_NUEVA"
-            className={inputClass}
-          >
-            {Object.entries(TIPO_ACCION_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className={labelClass}>Fijo / No fijo *</label>
-          <select
-            name="tipoInstalacion"
-            required
-            defaultValue="FIJO"
-            className={inputClass}
-          >
-            {Object.entries(TIPO_INSTALACION_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div>
-        <label className={labelClass}>Fecha y hora de instalación *</label>
-        <div className="grid gap-3 sm:grid-cols-[1.4fr_0.8fr_0.8fr_0.8fr]">
-          <input
-            name="fechaInstalacion"
-            type="date"
-            required
-            className={inputClass}
+      {cliente.latitud && cliente.longitud && (
+        <section className="mt-6">
+          <h2 className="mb-3 text-sm font-mono uppercase tracking-wider text-amber-500">
+            Ubicación exacta
+          </h2>
+          <MapaClientes
+            marcadores={[
+              {
+                id: cliente.idCliente,
+                lat: Number(cliente.latitud),
+                lng: Number(cliente.longitud),
+                popup: `<strong>${cliente.nombre} ${cliente.apellido ?? ""}</strong><br/>${cliente.direccion ?? ""}`,
+              },
+            ]}
           />
-          <select
-            name="horaInstalacion"
-            defaultValue="9"
-            className={inputClass}
-          >
-            {HORAS.map((h) => (
-              <option key={h} value={h}>
-                {h}
-              </option>
-            ))}
-          </select>
-          <select
-            name="minutoInstalacion"
-            defaultValue="00"
-            className={inputClass}
-          >
-            {MINUTOS.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-          <select
-            name="periodoInstalacion"
-            defaultValue="AM"
-            className={inputClass}
-          >
-            <option value="AM">AM</option>
-            <option value="PM">PM</option>
-          </select>
-        </div>
-      </div>
+        </section>
+      )}
 
-      {/* --- Derecho de instalación (opcional) --- */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass}>
-            ¿Se cobrará derecho de instalación?
-          </label>
-          <select
-            name="tieneCostoInstalacion"
-            value={tieneCosto}
-            onChange={(e) => setTieneCosto(e.target.value)}
-            className={inputClass}
-          >
-            <option value="no">No</option>
-            <option value="si">Sí</option>
-          </select>
-        </div>
-        {tieneCosto === "si" && (
-          <div>
-            <label className={labelClass}>Monto (S/) *</label>
-            <input
-              name="derechoInstalacion"
-              type="number"
-              min="0"
-              step="0.01"
-              required
-              placeholder="200.00"
-              className={inputClass}
-            />
+      {/* --- Un bloque por cada plan de internet del cliente --- */}
+      {cliente.servicios.length === 0 && (
+        <p className="mt-6 text-sm text-slate-500">
+          Este cliente aún no tiene planes registrados.
+        </p>
+      )}
+
+      {cliente.servicios.map((s, i) => (
+        <section
+          key={s.idServicio}
+          className="mt-6 rounded-2xl border border-slate-800 bg-slate-900/60 p-6"
+        >
+          <h2 className="text-sm font-mono uppercase tracking-wider text-amber-500">
+            Plan {i + 1}: {s.planNombre ?? "—"} — {dinero(s.precioMensual)}/mes
+          </h2>
+
+          <div className="mt-3 grid gap-x-8 gap-y-1 text-sm text-slate-400 sm:grid-cols-2">
+            <p>Día de cobro: {s.diaCobro} de cada mes</p>
+            <p>
+              Vence:{" "}
+              {s.diaVencimiento
+                ? `día ${s.diaVencimiento}`
+                : "penúltimo día del mes"}
+            </p>
+            <p>
+              Instalación:{" "}
+              {s.fechaHoraInstalacion
+                ? new Date(s.fechaHoraInstalacion).toLocaleString("es-PE")
+                : "—"}
+            </p>
+            <p>
+              Tipo de acción:{" "}
+              {s.tipoAccion ? TIPO_ACCION_LABELS[s.tipoAccion] : "—"}
+            </p>
+            <p>
+              Fijo / No fijo:{" "}
+              {s.tipoInstalacion
+                ? TIPO_INSTALACION_LABELS[s.tipoInstalacion]
+                : "—"}
+            </p>
+            <p>
+              Derecho de instalación:{" "}
+              {s.tieneCostoInstalacion
+                ? `Sí — ${dinero(s.derechoInstalacion)}`
+                : "No"}
+            </p>
+            <p className="sm:col-span-2">
+              Servicio adicional:{" "}
+              {s.tieneServicioAdicional
+                ? `${s.servicioAdicionalDetalle} — ${dinero(s.servicioAdicionalPrecio)}`
+                : "No"}
+            </p>
           </div>
+
+          <h3 className="mb-2 mt-5 text-xs font-mono uppercase tracking-wider text-slate-500">
+            Historial de pagos
+          </h3>
+          {s.pagos.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              Aún no hay recibos (se crean al aceptar la solicitud).
+            </p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-slate-800">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-900 text-slate-500">
+                  <tr className="text-left font-mono text-[11px] uppercase tracking-wider">
+                    <th className="px-3 py-2.5">Periodo</th>
+                    <th className="px-3 py-2.5">Concepto</th>
+                    <th className="px-3 py-2.5">Cobro</th>
+                    <th className="px-3 py-2.5">Vence</th>
+                    <th className="px-3 py-2.5">Monto</th>
+                    <th className="px-3 py-2.5">Desc.</th>
+                    <th className="px-3 py-2.5">Total</th>
+                    <th className="px-3 py-2.5">Pagado el</th>
+                    <th className="px-3 py-2.5">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.pagos.map((p) => (
+                    <tr
+                      key={p.idPago}
+                      className="border-t border-slate-800 text-slate-200"
+                    >
+                      <td className="px-3 py-2.5">{p.periodo}</td>
+                      <td className="px-3 py-2.5 text-slate-400">
+                        {p.concepto}
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-400">
+                        {fecha(p.fechaCobro)}
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-400">
+                        {fecha(p.fechaVencimiento)}
+                      </td>
+                      <td className="px-3 py-2.5">{dinero(p.monto)}</td>
+                      <td className="px-3 py-2.5 text-slate-400">
+                        {Number(p.descuento) > 0
+                          ? `-${dinero(p.descuento)}`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2.5 font-medium">
+                        {dinero(p.montoFinal)}
+                      </td>
+                      <td className="px-3 py-2.5 text-slate-400">
+                        {fecha(p.fechaPago)}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <span
+                          className={`rounded-full border px-2.5 py-0.5 text-xs ${estadoPagoBadge[p.estado]}`}
+                        >
+                          {p.estado}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {puedeSolicitarPlanes && (
+            <CambiarServicioForm
+              planes={planes}
+              servicio={{
+                idServicio: s.idServicio,
+                idPlan: s.idPlan,
+                planNombre: s.planNombre,
+                precioMensual: Number(s.precioMensual),
+                diaCobro: s.diaCobro,
+                diaVencimiento: s.diaVencimiento,
+              }}
+            />
+          )}
+        </section>
+      ))}
+
+      {puedeSolicitarPlanes && (
+        <NuevoServicioForm idCliente={cliente.idCliente} planes={planes} />
+      )}
+
+      <div className="mt-6 grid gap-6 md:grid-cols-2">
+        {puedeCompletarInstalacion && (
+          <InstalacionForm
+            idCliente={cliente.idCliente}
+            activoActual={cliente.activo}
+          />
+        )}
+        {puedeSolicitarEdicion && (
+          <EditarClienteForm
+            cliente={{
+              idCliente: cliente.idCliente,
+              nombre: cliente.nombre,
+              apellido: cliente.apellido,
+              correo: cliente.correo,
+              direccion: cliente.direccion,
+            }}
+          />
         )}
       </div>
 
-      {/* --- Servicio adicional (opcional): el trabajador escribe el tipo y el precio --- */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <label className={labelClass}>¿Se hará un servicio adicional?</label>
-          <select
-            name="tieneServicioAdicional"
-            value={tieneAdicional}
-            onChange={(e) => setTieneAdicional(e.target.value)}
-            className={inputClass}
-          >
-            <option value="no">No</option>
-            <option value="si">Sí</option>
-          </select>
-        </div>
-      </div>
-      {tieneAdicional === "si" && (
-        <div className="grid gap-4 sm:grid-cols-[2fr_1fr]">
-          <div>
-            <label className={labelClass}>¿Qué servicio adicional? *</label>
-            <input
-              name="servicioAdicionalDetalle"
-              required
-              maxLength={120}
-              placeholder="Ej: punto de red adicional, extensión de cable, repetidor WiFi"
-              className={inputClass}
-            />
-          </div>
-          <div>
-            <label className={labelClass}>Precio (S/) *</label>
-            <input
-              name="servicioAdicionalPrecio"
-              type="number"
-              min="0"
-              step="0.01"
-              required
-              placeholder="50.00"
-              className={inputClass}
-            />
-          </div>
-        </div>
-      )}
-    </div>
+      <ClienteDetalle
+        idCliente={cliente.idCliente}
+        telefonos={cliente.telefonos}
+        documentos={cliente.documentos}
+      />
+    </Shell>
   );
 }
