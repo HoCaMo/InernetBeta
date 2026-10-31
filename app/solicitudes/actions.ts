@@ -365,10 +365,7 @@ async function crearClienteInterno(formData: FormData) {
 // CLIENTES — solicitar edición (TRABAJADOR sobre sus clientes, o
 // ADMINISTRADOR sobre clientes de trabajadores que supervisa)
 // ===========================================================
-export async function crearSolicitudEdicionCliente(
-  idCliente: number,
-  formData: FormData,
-) {
+async function edicionClienteInterno(idCliente: number, formData: FormData) {
   const session = await auth();
   if (
     !session ||
@@ -398,6 +395,67 @@ export async function crearSolicitudEdicionCliente(
   if (correo && correo !== cliente.correo) cambios.correo = correo;
   if (domicilioInstalacion && domicilioInstalacion !== cliente.direccion)
     cambios.direccion = domicilioInstalacion;
+
+  // --- Teléfono y documento (DNI, CE, etc.) ---
+  const telefono = ((formData.get("telefono") as string) ?? "").trim();
+  const tipoDocumento = (
+    (formData.get("tipoDocumento") as string) ?? ""
+  ).trim();
+  const numeroDocumento = (
+    (formData.get("numeroDocumento") as string) ?? ""
+  ).trim();
+
+  const principal = await prisma.telefono.findFirst({
+    where: { idCliente, principal: true },
+  });
+  const documento = await prisma.documentoCliente.findFirst({
+    where: { idCliente },
+    orderBy: { idDocumento: "asc" },
+  });
+
+  if (telefono && telefono !== (principal?.numero ?? "")) {
+    const usado = await prisma.telefono.findUnique({
+      where: { numero: telefono },
+    });
+    if (!(usado && usado.idCliente === idCliente)) {
+      if (!/^[0-9]{7,15}$/.test(telefono))
+        throw new Error(
+          "El teléfono debe tener entre 7 y 15 dígitos, solo números",
+        );
+      if (usado) throw new Error("Ese teléfono ya pertenece a otro cliente");
+      cambios.telefono = telefono;
+    }
+  }
+  if (tipoDocumento && tipoDocumento !== (documento?.tipoDocumento ?? ""))
+    cambios.tipoDocumento = tipoDocumento;
+  if (numeroDocumento && numeroDocumento !== (documento?.numeroDocumento ?? ""))
+    cambios.numeroDocumento = numeroDocumento;
+
+  if (cambios.tipoDocumento || cambios.numeroDocumento) {
+    const tipoFinal = cambios.tipoDocumento ?? documento?.tipoDocumento ?? "";
+    const numeroFinal =
+      cambios.numeroDocumento ?? documento?.numeroDocumento ?? "";
+    const largo = LONGITUD_DOCUMENTO[tipoFinal];
+    if (!largo) throw new Error("Tipo de documento inválido");
+    if (numeroFinal.length !== largo) {
+      throw new Error(
+        `El número de ${tipoFinal} debe tener exactamente ${largo} caracteres`,
+      );
+    }
+    if ((tipoFinal === "RUC") !== (documento?.tipoDocumento === "RUC")) {
+      throw new Error(
+        "No se puede cambiar un documento de o hacia RUC desde aquí",
+      );
+    }
+    const repetido = await prisma.documentoCliente.findFirst({
+      where: {
+        tipoDocumento: tipoFinal as never,
+        numeroDocumento: numeroFinal,
+        NOT: { idCliente },
+      },
+    });
+    if (repetido) throw new Error("Ese documento ya pertenece a otro cliente");
+  }
 
   if (Object.keys(cambios).length === 0) {
     throw new Error("No hiciste ningún cambio respecto a los datos actuales");
@@ -429,7 +487,7 @@ export async function crearSolicitudEdicionCliente(
 // ===========================================================
 // CLIENTES — solicitar eliminación (mismo alcance que la edición)
 // ===========================================================
-export async function crearSolicitudEliminacionCliente(
+async function eliminacionClienteInterno(
   idCliente: number,
   comentario?: string,
 ) {
@@ -849,10 +907,59 @@ async function resolverClienteInterno(idSolicitud: number, decision: Decision) {
           string,
           string
         >;
-        await tx.cliente.update({
-          where: { idCliente: cliente.idCliente },
-          data: cambios as never,
-        });
+        // Teléfono y documento viven en otras tablas; el resto son datos del cliente
+        const { telefono, tipoDocumento, numeroDocumento, ...datosCliente } =
+          cambios;
+        if (Object.keys(datosCliente).length > 0) {
+          await tx.cliente.update({
+            where: { idCliente: cliente.idCliente },
+            data: datosCliente as never,
+          });
+        }
+        if (telefono) {
+          const principal = await tx.telefono.findFirst({
+            where: { idCliente: cliente.idCliente, principal: true },
+          });
+          if (principal) {
+            await tx.telefono.update({
+              where: { idTelefono: principal.idTelefono },
+              data: { numero: telefono },
+            });
+          } else {
+            await tx.telefono.create({
+              data: {
+                idCliente: cliente.idCliente,
+                numero: telefono,
+                principal: true,
+              },
+            });
+          }
+        }
+        if (tipoDocumento || numeroDocumento) {
+          const documento = await tx.documentoCliente.findFirst({
+            where: { idCliente: cliente.idCliente },
+            orderBy: { idDocumento: "asc" },
+          });
+          if (documento) {
+            await tx.documentoCliente.update({
+              where: { idDocumento: documento.idDocumento },
+              data: {
+                ...(tipoDocumento
+                  ? { tipoDocumento: tipoDocumento as never }
+                  : {}),
+                ...(numeroDocumento ? { numeroDocumento } : {}),
+              },
+            });
+          } else if (tipoDocumento && numeroDocumento) {
+            await tx.documentoCliente.create({
+              data: {
+                idCliente: cliente.idCliente,
+                tipoDocumento: tipoDocumento as never,
+                numeroDocumento,
+              },
+            });
+          }
+        }
       } else if (
         solicitud.tipo === "ELIMINACION_CLIENTE" &&
         decision === "ACEPTADA"
@@ -1503,5 +1610,27 @@ export async function resolverSolicitudTrabajadorGestion(
 ) {
   return conResultado("resolverSolicitudTrabajadorGestion", () =>
     resolverTrabajadorGestionInterno(idSolicitud, decision),
+  );
+}
+
+// ===========================================================
+// Edición / eliminación de clientes: devuelven { ok, error }
+// (en producción Next.js oculta los errores lanzados desde una Server Action)
+// ===========================================================
+export async function crearSolicitudEdicionCliente(
+  idCliente: number,
+  formData: FormData,
+) {
+  return conResultado("crearSolicitudEdicionCliente", () =>
+    edicionClienteInterno(idCliente, formData),
+  );
+}
+
+export async function crearSolicitudEliminacionCliente(
+  idCliente: number,
+  comentario?: string,
+) {
+  return conResultado("crearSolicitudEliminacionCliente", () =>
+    eliminacionClienteInterno(idCliente, comentario),
   );
 }

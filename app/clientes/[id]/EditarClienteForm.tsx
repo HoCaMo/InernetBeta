@@ -5,6 +5,7 @@ import {
   crearSolicitudEdicionCliente,
   crearSolicitudEliminacionCliente,
 } from "@/app/solicitudes/actions";
+import { LONGITUD_DOCUMENTO } from "@/app/lib/constantes";
 
 type ClienteActual = {
   idCliente: number;
@@ -12,6 +13,9 @@ type ClienteActual = {
   apellido: string | null;
   correo: string | null;
   direccion: string | null;
+  telefono: string | null;
+  tipoDocumento: string | null;
+  numeroDocumento: string | null;
 };
 
 const inputClass =
@@ -33,8 +37,15 @@ export default function EditarClienteForm({
   const [apellido, setApellido] = useState(cliente.apellido ?? "");
   const [correo, setCorreo] = useState(cliente.correo ?? "");
   const [direccion, setDireccion] = useState(cliente.direccion ?? "");
+  const [telefono, setTelefono] = useState(cliente.telefono ?? "");
+  const [tipoDocumento, setTipoDocumento] = useState(
+    cliente.tipoDocumento ?? "DNI",
+  );
+  const [numeroDocumento, setNumeroDocumento] = useState(
+    cliente.numeroDocumento ?? "",
+  );
 
-  // --- Vista previa en vivo de qué campos cambiarían ---
+  // --- Vista previa de qué parte del cliente se va a editar ---
   const cambios: { campo: string; antes: string; despues: string }[] = [];
   if (nombre !== cliente.nombre)
     cambios.push({ campo: "Nombre", antes: cliente.nombre, despues: nombre });
@@ -56,6 +67,31 @@ export default function EditarClienteForm({
       antes: cliente.direccion ?? "—",
       despues: direccion,
     });
+  if (telefono !== (cliente.telefono ?? ""))
+    cambios.push({
+      campo: "Teléfono",
+      antes: cliente.telefono ?? "—",
+      despues: telefono || "—",
+    });
+  if (tipoDocumento !== (cliente.tipoDocumento ?? "DNI"))
+    cambios.push({
+      campo: "Tipo de documento",
+      antes: cliente.tipoDocumento ?? "—",
+      despues: tipoDocumento,
+    });
+  if (numeroDocumento !== (cliente.numeroDocumento ?? ""))
+    cambios.push({
+      campo: "N.° de documento",
+      antes: cliente.numeroDocumento ?? "—",
+      despues: numeroDocumento || "—",
+    });
+
+  const documentoCambia =
+    tipoDocumento !== (cliente.tipoDocumento ?? "DNI") ||
+    numeroDocumento !== (cliente.numeroDocumento ?? "");
+  const largoEsperado = LONGITUD_DOCUMENTO[tipoDocumento];
+  const documentoInvalido =
+    documentoCambia && numeroDocumento.length !== largoEsperado;
 
   function handleSubmit(formData: FormData) {
     setError(null);
@@ -64,11 +100,24 @@ export default function EditarClienteForm({
       setError("No hiciste ningún cambio respecto a los datos actuales.");
       return;
     }
+    if (documentoInvalido) {
+      setError(
+        `El número de ${tipoDocumento} debe tener exactamente ${largoEsperado} caracteres.`,
+      );
+      return;
+    }
     startTransition(async () => {
       try {
-        await crearSolicitudEdicionCliente(cliente.idCliente, formData);
+        const res = await crearSolicitudEdicionCliente(
+          cliente.idCliente,
+          formData,
+        );
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
         setMensaje(
-          "Solicitud de edición enviada. Un administrador o el jefe la revisará.",
+          "Solicitud de edición enviada. Quien corresponda la revisará.",
         );
       } catch (err) {
         setError(
@@ -82,9 +131,13 @@ export default function EditarClienteForm({
     setError(null);
     startTransition(async () => {
       try {
-        await crearSolicitudEliminacionCliente(cliente.idCliente);
+        const res = await crearSolicitudEliminacionCliente(cliente.idCliente);
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
         setMensaje(
-          "Solicitud de eliminación enviada. Un administrador o el jefe la revisará.",
+          "Solicitud de eliminación enviada. Quien corresponda la revisará.",
         );
         setMostrarEliminar(false);
       } catch (err) {
@@ -102,7 +155,7 @@ export default function EditarClienteForm({
       </h2>
       <p className="mb-4 text-xs text-slate-500">
         Los cambios no se aplican de inmediato: se envían como solicitud para
-        que un administrador o el jefe los revise.
+        que se revisen.
       </p>
 
       {mensaje && (
@@ -117,32 +170,76 @@ export default function EditarClienteForm({
       )}
 
       <form action={handleSubmit} className="space-y-3">
-        <div>
-          <label className={labelClass}>Nombre</label>
-          <input
-            name="nombre"
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            className={inputClass}
-          />
-        </div>
-        <div>
-          <label className={labelClass}>Apellido</label>
-          <input
-            name="apellido"
-            value={apellido}
-            onChange={(e) => setApellido(e.target.value)}
-            className={inputClass}
-          />
-        </div>
-        <div>
-          <label className={labelClass}>Correo</label>
-          <input
-            name="correo"
-            value={correo}
-            onChange={(e) => setCorreo(e.target.value)}
-            className={inputClass}
-          />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className={labelClass}>Nombre</label>
+            <input
+              name="nombre"
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Apellido</label>
+            <input
+              name="apellido"
+              value={apellido}
+              onChange={(e) => setApellido(e.target.value)}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Tipo de documento</label>
+            <select
+              name="tipoDocumento"
+              value={tipoDocumento}
+              onChange={(e) => setTipoDocumento(e.target.value)}
+              className={inputClass}
+            >
+              <option value="DNI">DNI</option>
+              <option value="PASAPORTE">Pasaporte</option>
+              <option value="CE">Carné de Extranjería</option>
+              <option value="RUC">RUC</option>
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>N.° de documento</label>
+            <input
+              name="numeroDocumento"
+              value={numeroDocumento}
+              onChange={(e) => setNumeroDocumento(e.target.value)}
+              maxLength={largoEsperado}
+              className={`${inputClass} ${documentoCambia ? (documentoInvalido ? "border-red-600" : "border-emerald-600") : ""}`}
+            />
+            {documentoCambia && (
+              <p
+                className={`mt-1 text-xs ${documentoInvalido ? "text-red-400" : "text-emerald-400"}`}
+              >
+                {numeroDocumento.length}/{largoEsperado} caracteres para{" "}
+                {tipoDocumento}
+              </p>
+            )}
+          </div>
+          <div>
+            <label className={labelClass}>Teléfono</label>
+            <input
+              name="telefono"
+              value={telefono}
+              onChange={(e) => setTelefono(e.target.value)}
+              placeholder="Solo números (7 a 15 dígitos)"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Correo</label>
+            <input
+              name="correo"
+              value={correo}
+              onChange={(e) => setCorreo(e.target.value)}
+              className={inputClass}
+            />
+          </div>
         </div>
         <div>
           <label className={labelClass}>Domicilio de instalación</label>
@@ -154,7 +251,6 @@ export default function EditarClienteForm({
           />
         </div>
 
-        {/* --- Vista previa: qué parte del cliente se va a editar --- */}
         {cambios.length > 0 && (
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
             <p className="mb-2 text-xs font-medium text-amber-400">
@@ -173,7 +269,7 @@ export default function EditarClienteForm({
 
         <button
           type="submit"
-          disabled={isPending || cambios.length === 0}
+          disabled={isPending || cambios.length === 0 || documentoInvalido}
           className="w-full rounded-lg bg-amber-500 py-2.5 text-sm font-medium text-slate-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isPending ? "Enviando..." : "Enviar solicitud de edición"}

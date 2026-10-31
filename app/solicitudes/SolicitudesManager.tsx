@@ -51,6 +51,16 @@ const SOLO_JEFE = new Set([
 
 const dinero = (v: unknown) => `S/ ${Number(v).toFixed(2)}`;
 
+const ETIQUETAS_CAMPO: Record<string, string> = {
+  nombre: "Nombre",
+  apellido: "Apellido",
+  correo: "Correo",
+  direccion: "Domicilio",
+  telefono: "Teléfono",
+  tipoDocumento: "Tipo de documento",
+  numeroDocumento: "N.° de documento",
+};
+
 function resumenPropuesta(s: SolicitudConRelaciones): string | null {
   const datos = s.datosPropuestos as Record<string, unknown> | null;
 
@@ -59,7 +69,7 @@ function resumenPropuesta(s: SolicitudConRelaciones): string | null {
     datos
   ) {
     return Object.entries(datos)
-      .map(([k, v]) => `${k}: ${v}`)
+      .map(([k, v]) => `${ETIQUETAS_CAMPO[k] ?? k}: ${v}`)
       .join(" · ");
   }
 
